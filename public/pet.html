@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Language Companion</title>
+
+  <link rel="stylesheet" href="/css/shared.css">
+  <link rel="stylesheet" href="/css/robot.css">
+</head>
+
+<body>
+  <main id="robot-screen">
+
+    <img
+      id="robot-pet"
+      src="/assets/pet/idle.gif"
+      alt="Virtual language companion"
+    >
+
+    <p id="robot-instruction">
+      Waiting for the activity to begin...
+    </p>
+
+    <p id="robot-response" hidden></p>
+
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/events.js"></script>
+  <script src="/js/robot.js"></script>
+</body>
+</html>
