@@ -1,0 +1,66 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #202020;
+  background: #fff;
+}
+
+#robot-screen {
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100svh;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  text-align: center;
+}
+
+#robot-screen [hidden] {
+  display: none;
+}
+
+#robot-pet {
+  max-width: 100%;
+  max-height: 45vh;
+  object-fit: contain;
+}
+
+#robot-instruction,
+#robot-response {
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  line-height: 1.35;
+}
+
+#robot-response {
+  font-weight: 700;
+}
+
+#robot-pronunciation {
+  min-height: 48px;
+  padding: 0.75rem 1.25rem;
+  font: inherit;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+#robot-pronunciation:disabled {
+  cursor: default;
+}
+
+#robot-pronunciation:focus-visible {
+  outline: 3px solid #2455a4;
+  outline-offset: 4px;
+}
+
+#robot-speech-status {
+  max-width: 36rem;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
