@@ -134,11 +134,6 @@
 }
 
 
-#room-screen .room-help {
-  margin: 12px 0;
-  font-size: 0.85rem;
-  text-align: center;
-}
 #room-screen .room-status {
   position: absolute;
   width: 1px;
