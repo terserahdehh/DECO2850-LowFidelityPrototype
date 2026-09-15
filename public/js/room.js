@@ -36,11 +36,25 @@ let destroyed = false;
 
 // Switch off after desktop D-pad placement testing.
 const SHOW_DPAD_ON_DESKTOP = true;
+// Rendering-only scene switch. Legacy art and its obstacles are enabled together.
+const USE_LEGACY_KITCHEN = false;
 const loadedAssets = Object.create(null);
+const PERSON5_ASSETS = {
+  roomBackground: "/assets/background.png",
+  mascot: "/assets/char_movements/default.png",
+  mascotLeft: "/assets/char_movements/leftmove.png",
+  mascotRight: "/assets/char_movements/rightmove.png",
+  mascotLeftUp: "/assets/char_movements/leftupmove.png",
+  mascotRightUp: "/assets/char_movements/rightupmove.png",
+  mascotLeftDown: "/assets/char_movements/leftdownmove.png",
+  mascotRightDown: "/assets/char_movements/rightdownmove.png",
+};
+const PET_VISUAL_HEIGHT = 78;
+let lastHorizontalFacing = 1; // Rendering state only; deterministic right fallback.
 const WORLD = {
   width: 960,
   height: 620,
-  playableBounds: { left: 54, right: 906, top: 126, bottom: 568 },
+  playableBounds: { left: 54, right: 906, top: USE_LEGACY_KITCHEN ? 126 : 72, bottom: 568 },
   wallDepth: 34,
 };
 
@@ -72,7 +86,7 @@ const player = {
 
 // Collision boxes describe only each object's footprint on the floor.
 // Their visual drawings may extend above the footprint for a 2.5D effect.
-const furniture = [
+const legacyKitchenFurniture = [
   { id: "refrigerator", x: 88, y: 337, width: 205, height: 96, draw: drawRefrigerator },
   { id: "stove-counter", x: 68, y: 143, width: 222, height: 64, draw: drawStoveCounter },
   { id: "sink-counter", x: 694, y: 153, width: 188, height: 72, draw: drawSinkCounter },
@@ -80,6 +94,8 @@ const furniture = [
   { id: "kitchen-island", x: 402, y: 201, width: 151, height: 78, draw: drawKitchenIsland },
 ];
 
+// The active collision/render list is empty in the furniture-free asset scene.
+const furniture = USE_LEGACY_KITCHEN ? legacyKitchenFurniture : [];
 
 const SPAWN = Object.freeze({ x: 490, y: 400 });
 const ITEM_SLOTS = [
@@ -91,9 +107,9 @@ const ITEM_SLOTS = [
 const MOCK_ACTIVITY = {
   activityId: "room-demo",
   items: [
-    { itemId: "chicken", name: "Chicken", icon: "chicken" },
-    { itemId: "carrot", name: "Carrot", icon: "carrot" },
-    { itemId: "rice", name: "Rice", icon: "rice" },
+    { itemId: "chicken", name: "Chicken", icon: "chicken", image: "/assets/eat_objects/chicken.png" },
+    { itemId: "carrot", name: "Carrot", icon: "carrot", image: "/assets/eat_objects/carrot.png" },
+    { itemId: "rice", name: "Rice", icon: "rice", image: "/assets/eat_objects/rice.png" },
   ],
 };
 const PICKUP_DURATION = 1.35;
@@ -183,6 +199,7 @@ function loadActivity(next) {
 function reset() {
   clearInput();
   Object.assign(player, SPAWN, { facingX: 0, facingY: 1, moving: false });
+  lastHorizontalFacing = 1;
   walkTime = 0;
   selectedItem = null;
   activePickup = null;
@@ -331,6 +348,7 @@ function update(deltaSeconds) {
   const input = canInteract() ? readMovementInput() : { x: 0, y: 0 };
   player.moving = input.x !== 0 || input.y !== 0;
   if (player.moving) {
+    if (input.x !== 0) lastHorizontalFacing = Math.sign(input.x);
     player.facingX = input.x;
     player.facingY = input.y;
     walkTime += deltaSeconds * 11;
@@ -352,18 +370,41 @@ function updateItems(deltaSeconds) {
   }
   if (!canInteract()) return;
   for (const item of roomItems) {
-    const distance = Math.hypot(player.x - item.x, player.y - item.y);
-    const threshold = item.pickupRadius + player.radius;
     if (!item.armed) {
-      if (distance > threshold + 8) item.armed = true;
+      // Same body/food geometry, with extra separation to prevent immediate re-entry.
+      if (!bodyTouchesItem(item, 12)) item.armed = true;
       continue;
     }
-    if (distance <= threshold) {
+    if (bodyTouchesItem(item, 4)) {
       selectItem(item);
       break;
     }
   }
 }
+// Interaction follows the visible body, independently of the wall-collision circle.
+// Use stable (unbobbed) shapes; the small tolerance covers the decorative bob/float.
+function bodyTouchesItem(item, tolerance) {
+  const sprite = loadedAssets[petSpriteKey()];
+  const hasSprite = sprite && sprite.complete && sprite.naturalWidth > 0;
+  const height = hasSprite ? PET_VISUAL_HEIGHT : 64;
+  const width = hasSprite ? height * sprite.naturalWidth / sprite.naturalHeight : 54;
+  const groundOffset = hasSprite ? 19 : 27; // Matches supplied sprite / Canvas fallback.
+  const bodyY = player.y + groundOffset - height / 2;
+
+  const image = item.image;
+  const hasImage = image && image.complete && image.naturalWidth > 0;
+  const scale = hasImage ? 42 / Math.max(image.naturalWidth, image.naturalHeight) : 1;
+  const itemWidth = hasImage ? image.naturalWidth * scale : 42;
+  const itemHeight = hasImage ? image.naturalHeight * scale : 42;
+
+  // Closest point on the padded item rectangle to the ellipse's centre.
+  // Normalising by the ellipse radii avoids triggering at empty sprite-box corners.
+  const dx = Math.max(0, Math.abs(player.x - item.x) - itemWidth / 2 - tolerance);
+  const dy = Math.max(0, Math.abs(bodyY - (item.y - 6)) - itemHeight / 2 - tolerance);
+  return (dx / (width / 2)) ** 2 + (dy / (height / 2)) ** 2 <= 1;
+}
+
+
 function selectItem(item) {
   if (!canInteract()) return;
   item.selected = true;
@@ -445,6 +486,26 @@ function kitchenDisc(x, y, radius, color) {
 }
 
 function drawRoom() {
+  if (USE_LEGACY_KITCHEN) {
+    drawLegacyKitchenRoom();
+    return;
+  }
+  // The supplied PNG is mostly transparent; the same base fills the side margins.
+  context.save();
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, WORLD.width, WORLD.height);
+  const image = loadedAssets.roomBackground;
+  if (image && image.complete && image.naturalWidth > 0) {
+    const scale = Math.min(WORLD.width / image.naturalWidth, WORLD.height / image.naturalHeight);
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    context.drawImage(image, (WORLD.width - width) / 2, (WORLD.height - height) / 2, width, height);
+  }
+  // A missing background leaves the pale base; no invisible kitchen is introduced.
+  context.restore();
+}
+
+function drawLegacyKitchenRoom() {
   context.clearRect(0, 0, WORLD.width, WORLD.height);
   if (drawAsset("roomBackground", 0, 0, WORLD.width, WORLD.height)) return;
 
@@ -933,11 +994,26 @@ function easeOutBack(value) {
   return 1 + (overshoot + 1) * shifted ** 3 + overshoot * shifted ** 2;
 }
 
+// These are single directional poses, not an animation-frame sequence.
+function petSpriteKey() {
+  if (!player.moving) return "mascot";
+  const side = lastHorizontalFacing < 0 ? "Left" : "Right";
+  if (player.facingY < 0) return "mascot" + side + "Up";
+  if (player.facingY > 0) return "mascot" + side + "Down";
+  return "mascot" + side;
+}
+
+function drawPetSprite(groundY) {
+  const image = loadedAssets[petSpriteKey()];
+  if (!image || !image.complete || image.naturalWidth === 0) return false;
+  const width = PET_VISUAL_HEIGHT * image.naturalWidth / image.naturalHeight;
+  context.drawImage(image, -width / 2, groundY - PET_VISUAL_HEIGHT, width, PET_VISUAL_HEIGHT);
+  return true;
+}
+
 function drawPlayer() {
   const bob = player.moving ? Math.sin(walkTime) * 2 : Math.sin(performance.now() / 420) * 1.2;
   const step = player.moving ? Math.sin(walkTime) * 3 : 0;
-
-  if (drawAsset("mascot", player.x - 34, player.y - 57 + bob, 68, 78)) return;
 
   context.save();
   context.translate(player.x, player.y);
@@ -948,6 +1024,13 @@ function drawPlayer() {
   context.ellipse(0, 16, 24, 10, 0, 0, Math.PI * 2);
   context.fill();
 
+  // Same ground anchor and visual height for every pose; collision stays independent.
+  if (drawPetSprite(19 + bob)) {
+    context.restore();
+    return;
+  }
+
+  // Original Canvas pet remains the loading/error fallback.
   context.translate(0, bob - 17);
   context.fillStyle = "#9f7259";
   roundedRect(-18, 31 + Math.max(0, step), 13, 10, 5);
@@ -1094,6 +1177,7 @@ function gameLoop(currentTime) {
 window.Room = Object.freeze({
   loadActivity, show, hide, lock, unlock, finishSelection, reset, setAssets, getState, destroy,
 });
+if (!USE_LEGACY_KITCHEN) setAssets(PERSON5_ASSETS);
 syncControls();
 if (demoMode) {
   loadActivity(MOCK_ACTIVITY);

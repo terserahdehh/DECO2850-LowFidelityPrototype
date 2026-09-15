@@ -57,11 +57,11 @@
   display: grid;
   place-items: center;
   padding: 0;
-  border: 2px solid rgb(81 70 83 / 76%);
+  border: 2px solid rgb(65 84 85 / 85%);
   border-radius: 12px;
-  background: rgb(255 253 248 / 68%);
-  box-shadow: 0 3px 7px rgb(58 46 52 / 16%);
-  color: #514653;
+  background: rgb(159 190 187 / 86%);
+  box-shadow: 0 3px 7px rgb(42 65 68 / 22%);
+  color: #354749;
   font: 800 clamp(1.35rem, 3vw, 1.8rem)/1 ui-rounded, "Avenir Next", system-ui, sans-serif;
   cursor: pointer;
   pointer-events: auto;
@@ -72,13 +72,13 @@
 
 #room-screen .d-pad-button:active,
 #room-screen .d-pad-button.is-pressed {
-  background: rgb(255 202 112 / 78%);
-  box-shadow: 0 1px 3px rgb(58 46 52 / 14%);
+  background: rgb(116 158 158 / 94%);
+  box-shadow: 0 1px 3px rgb(42 65 68 / 25%);
   scale: 0.93;
 }
 
 #room-screen .d-pad-button:focus-visible {
-  outline: 3px solid #c06a52;
+  outline: 3px solid #46696d;
   outline-offset: 2px;
 }
 
@@ -95,12 +95,12 @@
 #room-screen .d-pad-center {
   grid-column: 2;
   grid-row: 2;
-  border: 2px solid rgb(81 70 83 / 76%);
+  border: 2px solid rgb(65 84 85 / 85%);
   border-radius: 12px;
-  background: rgb(255 253 248 / 55%);
+  background: rgb(185 204 200 / 68%);
   box-shadow:
-    0 3px 7px rgb(58 46 52 / 14%),
-    inset 0 0 0 5px rgb(81 70 83 / 6%);
+    0 3px 7px rgb(42 65 68 / 16%),
+    inset 0 0 0 5px rgb(65 84 85 / 6%);
 }
 
 #room-screen .d-pad-right {
