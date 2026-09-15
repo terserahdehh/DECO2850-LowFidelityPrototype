@@ -9,7 +9,15 @@ if (demoMode) return;
 // Only map IDs that have an exact matching Person 5 object asset. Items without
 // an asset keep an empty image URL so room.js uses its existing fallback art.
 const ROOM_ITEM_ASSETS = Object.freeze({
+  carrot: "/assets/eat_objects/carrot.png",
+  chicken: "/assets/eat_objects/chicken.png",
+  rice: "/assets/eat_objects/rice.png",
+  chair: "/assets/sit_objects/chair.png",
   book: "/assets/sit_objects/book.png",
+  table: "/assets/sit_objects/table.png",
+  butterfly: "/assets/see_objects/butterfly.png",
+  tree: "/assets/see_objects/tree.png",
+  bird: "/assets/see_objects/bird.png",
 });
 
 LanguageSystem.init({ onStartGame(language) {
