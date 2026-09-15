@@ -19,15 +19,21 @@
 
     <img
       id="robot-pet"
-      src="/assets/pet/idle.gif"
       alt="Virtual language companion"
+      hidden
     >
 
-    <p id="robot-instruction">
+    <p id="robot-instruction" aria-live="polite">
       Waiting for the activity to begin...
     </p>
 
-    <p id="robot-response" hidden></p>
+    <p id="robot-response" role="status" hidden></p>
+
+    <button id="robot-pronunciation" type="button" hidden>
+      Hear word
+    </button>
+
+    <p id="robot-speech-status" role="status" hidden></p>
 
   </main>
 
