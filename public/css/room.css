@@ -1,0 +1,159 @@
+/* Person 2 styles: intentionally scoped to the room screen. */
+#room-screen {
+  width: min(1080px, 100%);
+  margin-inline: auto;
+  color: #473d4b;
+  font-family: Inter, ui-rounded, "Avenir Next", system-ui, sans-serif;
+}
+#room-screen,
+#room-screen * {
+  box-sizing: border-box;
+}
+#room-screen .game-frame {
+  position: relative;
+  overflow: hidden;
+  border: 8px solid #fffdf8;
+  border-radius: 28px;
+  background: #d6eadf;
+  box-shadow:
+    0 24px 65px rgb(79 55 49 / 18%),
+    0 4px 10px rgb(79 55 49 / 10%);
+}
+
+#room-screen canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 48 / 31;
+  outline: none;
+  touch-action: none;
+}
+
+#room-screen canvas:focus-visible {
+  box-shadow: inset 0 0 0 4px #ffca70;
+}
+
+#room-screen .d-pad {
+  --d-pad-button-size: clamp(48px, 5.6vw, 58px);
+
+  position: absolute;
+  bottom: clamp(20px, 8.5%, 54px);
+  left: clamp(20px, 6.5%, 60px);
+  display: none;
+  grid-template-columns: repeat(3, var(--d-pad-button-size));
+  grid-template-rows: repeat(3, var(--d-pad-button-size));
+  gap: 4px;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#room-screen.touch-controls-enabled .d-pad {
+  display: grid;
+}
+
+#room-screen .d-pad-button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 2px solid rgb(65 84 85 / 85%);
+  border-radius: 12px;
+  background: rgb(159 190 187 / 86%);
+  box-shadow: 0 3px 7px rgb(42 65 68 / 22%);
+  color: #354749;
+  font: 800 clamp(1.35rem, 3vw, 1.8rem)/1 ui-rounded, "Avenir Next", system-ui, sans-serif;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  transition: background 80ms ease, box-shadow 80ms ease, scale 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#room-screen .d-pad-button:active,
+#room-screen .d-pad-button.is-pressed {
+  background: rgb(116 158 158 / 94%);
+  box-shadow: 0 1px 3px rgb(42 65 68 / 25%);
+  scale: 0.93;
+}
+
+#room-screen .d-pad-button:focus-visible {
+  outline: 3px solid #46696d;
+  outline-offset: 2px;
+}
+
+#room-screen .d-pad-up {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+#room-screen .d-pad-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+#room-screen .d-pad-center {
+  grid-column: 2;
+  grid-row: 2;
+  border: 2px solid rgb(65 84 85 / 85%);
+  border-radius: 12px;
+  background: rgb(185 204 200 / 68%);
+  box-shadow:
+    0 3px 7px rgb(42 65 68 / 16%),
+    inset 0 0 0 5px rgb(65 84 85 / 6%);
+}
+
+#room-screen .d-pad-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+#room-screen .d-pad-down {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+#room-screen .focus-note {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  translate: -50% 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgb(66 54 62 / 82%);
+  color: white;
+  font-size: clamp(0.68rem, 1.8vw, 0.82rem);
+  font-weight: 700;
+  pointer-events: none;
+  transition: opacity 180ms ease, translate 180ms ease;
+}
+
+#room-screen .focus-note.is-hidden {
+  opacity: 0;
+  translate: -50% 6px;
+}
+
+
+#room-screen .room-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+#room-screen .d-pad-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (max-width: 720px) {
+  #room-screen .game-frame {
+    border-width: 5px;
+    border-radius: 20px;
+  }
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  #room-screen .d-pad {
+    --d-pad-button-size: clamp(42px, 9vh, 54px);
+  }
+}

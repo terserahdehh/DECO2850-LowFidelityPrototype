@@ -23,7 +23,29 @@
     <section id="language-screen"></section>
 
     <!-- Person 2 -->
-    <section id="room-screen" hidden></section>
+    <section id="room-screen" hidden aria-label="Pet room">
+      <div class="game-frame">
+        <canvas id="room-canvas" width="960" height="620" tabindex="0"
+          aria-label="Move the pet using WASD, arrow keys, or the directional controls."></canvas>
+        <div class="d-pad" aria-label="Movement controls" aria-hidden="true">
+          <button class="d-pad-button d-pad-up" type="button" data-direction="up" aria-label="Move up">
+            <span aria-hidden="true">&uarr;</span>
+          </button>
+          <button class="d-pad-button d-pad-left" type="button" data-direction="left" aria-label="Move left">
+            <span aria-hidden="true">&larr;</span>
+          </button>
+          <div class="d-pad-center" aria-hidden="true"></div>
+          <button class="d-pad-button d-pad-right" type="button" data-direction="right" aria-label="Move right">
+            <span aria-hidden="true">&rarr;</span>
+          </button>
+          <button class="d-pad-button d-pad-down" type="button" data-direction="down" aria-label="Move down">
+            <span aria-hidden="true">&darr;</span>
+          </button>
+        </div>
+        <div class="focus-note">Use the D-pad or keyboard to explore</div>
+      </div>
+      <p class="room-status" role="status" aria-live="polite"></p>
+    </section>
 
     <!-- Person 3 -->
     <section id="colouring-screen" hidden></section>
