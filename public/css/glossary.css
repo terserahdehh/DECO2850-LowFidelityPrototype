@@ -1,5 +1,5 @@
 #glossary-screen[hidden], .glossary-book-button[hidden] { display: none; }
-.glossary-book-button { position: fixed; z-index: 20; top: 12px; right: 12px; width: 56px; height: 56px; border: 2px solid #514653; border-radius: 16px; background: #fffaf1; font-size: 1.8rem; cursor: pointer; }
+.glossary-book-button { position: fixed; z-index: 20; top: 12px; left: 12px; width: 56px; height: 56px; border: 2px solid #514653; border-radius: 16px; background: #fffaf1; font-size: 1.8rem; cursor: pointer; }
 #glossary-screen { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; box-sizing: border-box; background: #514653aa; font-family: system-ui, sans-serif; }
 .glossary-panel { width: min(100%, 520px); max-height: min(85dvh, 760px); overflow: auto; padding: 20px; box-sizing: border-box; border-radius: 22px; background: #fffaf1; color: #514653; }
 .glossary-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
