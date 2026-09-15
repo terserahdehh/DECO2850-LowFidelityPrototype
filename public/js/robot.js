@@ -1,11 +1,12 @@
-// TODO Person 5: replace null with each final animation URL, such as
-// "/assets/pet/idle.gif". Until then, the instruction and feedback work alone.
+// Person 5's original PNGs. Decorative motion is defined in robot.css.
 const ROBOT_ASSETS = {
-  idle: null,
-  happy: null,
-  confused: null,
-  eating: null,
-  playing: null,
+  idle: "/assets/char_movements/default.png",
+  happy: "/assets/char_emotions/happy.png",
+  confused: "/assets/char_emotions/sad.png",
+  eating: "/assets/char_emotions/happyeat.png",
+  sitting: "/assets/char_emotions/happysit.png",
+  looking: "/assets/char_emotions/happylook.png",
+  playing: "/assets/char_emotions/happy.png", // Legacy reaction; no current mission uses it.
 };
 
 const SPEECH_LANGUAGES = {
@@ -25,11 +26,111 @@ let speechRequestId = 0;
 // Keep a reference while speaking, including on mobile browsers.
 let activeUtterance = null;
 
+// Short original cues, in hertz. No audio files or background music are needed.
+const FEEDBACK_NOTES = {
+  correct: [523.25, 659.25],
+  incorrect: [293.66, 246.94],
+  complete: [523.25, 659.25, 783.99],
+};
+let feedbackAudioContext = null;
+let feedbackSoundId = 0;
+const activeFeedbackNotes = [];
+
+function getFeedbackAudioContext() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (typeof AudioContext !== "function") return null;
+  if (!feedbackAudioContext || feedbackAudioContext.state === "closed") {
+    feedbackAudioContext = new AudioContext();
+  }
+  return feedbackAudioContext;
+}
+
+function disconnectFeedbackNote(note) {
+  if (note.oscillator) note.oscillator.onended = null;
+  for (const node of [note.oscillator, note.gain]) {
+    try {
+      node?.disconnect();
+    } catch (error) {
+      // Also safe when a browser failed partway through creating a note.
+    }
+  }
+  const index = activeFeedbackNotes.indexOf(note);
+  if (index !== -1) activeFeedbackNotes.splice(index, 1);
+}
+
+function stopFeedbackSound() {
+  // Invalidate a pending resume so an old cue cannot play after a reset.
+  feedbackSoundId += 1;
+  for (const note of [...activeFeedbackNotes]) {
+    try {
+      note.oscillator?.stop();
+    } catch (error) {
+      // A note might already have finished or not have started.
+    }
+    disconnectFeedbackNote(note);
+  }
+}
+
+async function playFeedbackSound(type) {
+  stopFeedbackSound();
+  if (!Object.prototype.hasOwnProperty.call(FEEDBACK_NOTES, type)) return false;
+  const requestId = feedbackSoundId;
+
+  try {
+    const context = getFeedbackAudioContext();
+    if (!context) return false;
+    if (context.state === "suspended") await context.resume();
+    if (context.state !== "running" || requestId !== feedbackSoundId) return false;
+
+    const start = context.currentTime + 0.01;
+    FEEDBACK_NOTES[type].forEach((frequency, index) => {
+      // Register first so the catch below can clean up even a partial note.
+      const note = { oscillator: null, gain: null };
+      activeFeedbackNotes.push(note);
+      note.oscillator = context.createOscillator();
+      note.gain = context.createGain();
+      const noteStart = start + index * 0.16;
+      const noteEnd = noteStart + 0.14;
+
+      note.oscillator.type = "sine";
+      note.oscillator.frequency.value = frequency;
+      // A quiet attack/release envelope avoids sudden clicks and harsh sounds.
+      note.gain.gain.setValueAtTime(0, noteStart);
+      note.gain.gain.linearRampToValueAtTime(0.045, noteStart + 0.025);
+      note.gain.gain.linearRampToValueAtTime(0, noteEnd);
+      note.oscillator.connect(note.gain);
+      note.gain.connect(context.destination);
+      note.oscillator.onended = () => disconnectFeedbackNote(note);
+      note.oscillator.start(noteStart);
+      note.oscillator.stop(noteEnd + 0.01);
+    });
+    return true;
+  } catch (error) {
+    if (requestId === feedbackSoundId) stopFeedbackSound();
+    // Audio is optional. Neither visual feedback nor vocabulary waits for it.
+    return false;
+  }
+}
+
+// A tap anywhere on the robot screen can unlock audio on an iPad. No tone is
+// produced by the tap itself; only answer/completion events request sounds.
+document.addEventListener("pointerdown", () => {
+  try {
+    const context = getFeedbackAudioContext();
+    if (context?.state === "suspended") context.resume().catch(() => {});
+  } catch (error) {
+    // Unsupported or blocked audio never prevents using the screen.
+  }
+});
+
 function setRobotReaction(reaction) {
   const state = Object.prototype.hasOwnProperty.call(ROBOT_ASSETS, reaction)
     ? reaction
     : "idle";
 
+  // Restart a short reaction even when two attempts have the same result.
+  delete robotPet.dataset.reaction;
+  void robotPet.offsetWidth;
   robotPet.dataset.reaction = state;
   const assetPath = ROBOT_ASSETS[state];
   robotPet.hidden = !assetPath;
@@ -119,6 +220,7 @@ function clearVocabulary() {
 }
 
 function resetRobot(message = "Waiting for the activity to begin...") {
+  stopFeedbackSound();
   clearVocabulary();
   robotInstruction.textContent = message;
   robotResponse.textContent = "";
@@ -137,6 +239,7 @@ socket.on("answer-result", (result) => {
   robotResponse.textContent = result.correct ? "Great job!" : "Try again!";
   robotResponse.hidden = false;
   setRobotReaction(result.correct ? result.reaction || "happy" : "confused");
+  playFeedbackSound(result.correct ? "correct" : "incorrect");
 });
 
 socket.on("word-learned", (vocabulary) => {
@@ -167,6 +270,7 @@ socket.on("adventure-complete", () => {
   robotResponse.textContent = "Great work!";
   robotResponse.hidden = false;
   setRobotReaction("happy");
+  playFeedbackSound("complete");
 });
 
 socket.on("game-reset", () => resetRobot());
