@@ -29,7 +29,10 @@ GlossarySystem.init({
   onClose() { Room.unlock("glossary"); },
 });
 LanguageSystem.show();
-socket.on("word-learned", (data) => GlossarySystem.addWord(data));
+socket.on("word-learned", (data) => GlossarySystem.addWord({
+  ...data,
+  image: window.getCompletedArtwork?.(data.itemId) || ROOM_ITEM_ASSETS[data.itemId],
+}));
 socket.on("game-reset", () => {
   GlossarySystem.reset();
   LanguageSystem.reset();

@@ -11,10 +11,10 @@
       <h1>Choose your adventure language</h1>
       <p>Pick one language to begin!</p>
       <div class="language-options" role="group" aria-label="Adventure language">
-        <button type="button" class="language-option" data-language="indonesian" aria-pressed="false">Bahasa Indonesia</button>
-        <button type="button" class="language-option" data-language="chinese" aria-pressed="false">中文 Chinese</button>
+        <button type="button" class="language-option" data-language="indonesian" aria-pressed="false" aria-label="Bahasa Indonesia"><img src="/assets/indonesian.png" alt=""></button>
+        <button type="button" class="language-option" data-language="chinese" aria-pressed="false" aria-label="中文 Chinese"><img src="/assets/chinese.png" alt=""></button>
       </div>
-      <button type="button" class="start-adventure" disabled>Start Adventure</button>
+      <button type="button" class="start-adventure" aria-label="Start Adventure" disabled><img src="/assets/startbtn.png" alt=""></button>
     </div>`;
   const options = [...root.querySelectorAll(".language-option")];
   const startButton = root.querySelector(".start-adventure");

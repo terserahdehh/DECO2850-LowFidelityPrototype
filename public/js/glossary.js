@@ -12,13 +12,13 @@
   const bookButton = document.createElement("button");
   bookButton.type = "button";
   bookButton.className = "glossary-book-button";
-  bookButton.textContent = "📖";
+  bookButton.innerHTML = '<img src="/assets/glossary.png" alt="">';
   bookButton.setAttribute("aria-label", "Open glossary");
   bookButton.hidden = true;
   app.append(bookButton);
   root.innerHTML = `
     <div class="glossary-panel" role="dialog" aria-modal="true" aria-labelledby="glossary-title">
-      <div class="glossary-header"><h2 id="glossary-title">My words</h2><button type="button" class="glossary-close" aria-label="Close glossary">Close</button></div>
+      <div class="glossary-header"><h2 id="glossary-title">Glossary</h2><button type="button" class="glossary-close" aria-label="Close glossary"><img src="/assets/closebtn.png" alt=""></button></div>
       <div class="glossary-words"></div>
       <button type="button" class="glossary-exit">Exit Activity</button>
     </div>`;
@@ -39,15 +39,26 @@
     entries.forEach((entry) => {
       const card = document.createElement("article");
       card.className = "glossary-card";
-      const target = document.createElement("strong");
+      if (entry.image) {
+        const picture = document.createElement("img");
+        picture.className = "glossary-picture";
+        picture.src = entry.image;
+        picture.alt = entry.meaning;
+        card.append(picture);
+      }
+      const labels = document.createElement("div");
+      labels.className = "glossary-labels";
+      const target = document.createElement("span");
       target.textContent = entry.word;
-      const meaning = document.createElement("span");
-      meaning.textContent = entry.meaning;
-      card.append(target, meaning);
+      target.lang = language === "indonesian" ? "id" : "zh-CN";
+      const meaning = document.createElement("strong");
+      meaning.textContent = entry.meaning.charAt(0).toUpperCase() + entry.meaning.slice(1);
+      labels.append(meaning, target);
+      card.append(labels);
       if (language === "chinese" && entry.pronunciation) {
         const pronunciation = document.createElement("small");
         pronunciation.textContent = entry.pronunciation;
-        card.append(pronunciation);
+        labels.append(pronunciation);
       }
       if ("speechSynthesis" in window) {
         const speak = document.createElement("button");
@@ -105,7 +116,7 @@
       if (!data || !words[data.language] || typeof data.word !== "string" || typeof data.meaning !== "string") return false;
       const key = typeof data.itemId === "string" ? data.itemId : data.word;
       if (words[data.language].has(key)) return false;
-      words[data.language].set(key, { word: data.word, meaning: data.meaning, pronunciation: data.pronunciation });
+      words[data.language].set(key, { word: data.word, meaning: data.meaning, pronunciation: data.pronunciation, image: data.image });
       if (language === data.language) render();
       return true;
     },
