@@ -48,12 +48,14 @@
       }
       const labels = document.createElement("div");
       labels.className = "glossary-labels";
-      const target = document.createElement("span");
-      target.textContent = entry.word;
+      const target = document.createElement("strong");
+      target.textContent = language === "indonesian"
+        ? entry.word.charAt(0).toUpperCase() + entry.word.slice(1)
+        : entry.word;
       target.lang = language === "indonesian" ? "id" : "zh-CN";
-      const meaning = document.createElement("strong");
-      meaning.textContent = entry.meaning.charAt(0).toUpperCase() + entry.meaning.slice(1);
-      labels.append(meaning, target);
+      const meaning = document.createElement("span");
+      meaning.textContent = entry.meaning.toLowerCase();
+      labels.append(target, meaning);
       card.append(labels);
       if (language === "chinese" && entry.pronunciation) {
         const pronunciation = document.createElement("small");
