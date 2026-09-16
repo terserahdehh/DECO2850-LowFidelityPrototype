@@ -1,0 +1,370 @@
+/* =========================================
+   PERSON 3 - COLOURING SCREEN
+   ========================================= */
+
+
+/* Main colouring screen */
+#colouring-screen {
+    width: 100%;
+    min-height: 100vh;
+
+    box-sizing: border-box;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    gap: 24px;
+
+    padding: 30px;
+
+    background: #fffaf3;
+
+    text-align: center;
+
+    touch-action: none;
+}
+
+
+/* IMPORTANT:
+   hidden elements should actually disappear */
+#colouring-screen[hidden],
+#mission-complete[hidden],
+#swipe-message[hidden],
+#colour-options[hidden],
+#done-colouring[hidden] {
+    display: none;
+}
+
+
+/* =========================================
+   TITLE
+   ========================================= */
+
+#colouring-screen h2 {
+    margin: 0;
+
+    font-size: clamp(28px, 5vw, 46px);
+    font-family: Arial, sans-serif;
+
+    color: #3d3540;
+}
+
+
+/* =========================================
+   COLOURING AREA
+   ========================================= */
+
+#colouring-area {
+    position: relative;
+
+    width: min(70vw, 450px);
+    aspect-ratio: 1 / 1;
+
+    border: 4px solid #504650;
+    border-radius: 28px;
+
+    background: white;
+
+    overflow: hidden;
+
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+
+/*
+   The canvas and item image occupy
+   EXACTLY the same space.
+*/
+
+#colouring-canvas,
+#colouring-outline {
+    position: absolute;
+
+    top: 0;
+    left: 0;
+
+    width: 100%;
+    height: 100%;
+}
+
+
+#colouring-outline {
+    z-index: 1;
+    object-fit: contain;
+    padding: 40px;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+#colouring-canvas {
+    z-index: 2;
+    cursor: crosshair;
+    touch-action: none;
+    background: transparent;
+    mix-blend-mode: multiply;
+}
+
+/* =========================================
+   COLOUR BUTTONS
+   ========================================= */
+
+#colour-options {
+    display: flex;
+
+    justify-content: center;
+    align-items: center;
+
+    flex-wrap: wrap;
+
+    gap: 14px;
+}
+
+
+/* Make them circular colour buttons */
+.colour-btn {
+    width: 64px;
+    height: 64px;
+
+    border-radius: 50%;
+
+    border: 4px solid white;
+
+    box-shadow:
+        0 0 0 2px #555,
+        0 4px 8px rgba(0, 0, 0, 0.2);
+
+    font-size: 0;
+
+    cursor: pointer;
+
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+
+.colour-btn:hover {
+    transform: scale(1.08);
+}
+
+
+.colour-btn:active {
+    transform: scale(0.95);
+}
+
+
+/* Actual colours */
+
+.colour-btn[data-colour="red"] {
+    background: #ef5350;
+}
+
+.colour-btn[data-colour="blue"] {
+    background: #42a5f5;
+}
+
+.colour-btn[data-colour="green"] {
+    background: #66bb6a;
+}
+
+.colour-btn[data-colour="yellow"] {
+    background: #ffee58;
+}
+
+.colour-btn[data-colour="red"] {
+    background: #ef5350;
+}
+
+.colour-btn[data-colour="orange"] {
+    background: #ff9800;
+}
+
+.colour-btn[data-colour="yellow"] {
+    background: #ffee58;
+}
+
+.colour-btn[data-colour="green"] {
+    background: #66bb6a;
+}
+
+.colour-btn[data-colour="blue"] {
+    background: #42a5f5;
+}
+
+.colour-btn[data-colour="purple"] {
+    background: #ab47bc;
+}
+
+.colour-btn[data-colour="pink"] {
+    background: #ec70a1;
+}
+
+.colour-btn[data-colour="brown"] {
+    background: #e2e0e0;
+}
+
+.colour-btn[data-colour="black"] {
+    background: #333333;
+}
+
+/* =========================================
+   DONE BUTTON
+   ========================================= */
+
+#done-colouring {
+    min-width: 180px;
+
+    padding: 16px 34px;
+
+    border: none;
+    border-radius: 18px;
+
+    background: #7bb7b2;
+
+    color: white;
+
+    font-size: 22px;
+    font-weight: bold;
+
+    cursor: pointer;
+
+    box-shadow: 0 5px 0 #568884;
+
+    transition: transform 0.1s ease;
+}
+
+
+#done-colouring:active {
+    transform: translateY(3px);
+
+    box-shadow: 0 2px 0 #568884;
+}
+
+
+/* =========================================
+   SWIPE INSTRUCTION
+   ========================================= */
+
+#swipe-message {
+    margin: 0;
+
+    padding: 16px 26px;
+
+    border-radius: 18px;
+
+    background: #e5f4f2;
+
+    color: #3d5553;
+
+    font-family: Arial, sans-serif;
+
+    font-size: 22px;
+    font-weight: bold;
+
+    animation: swipeHint 1s ease-in-out infinite alternate;
+}
+
+
+@keyframes swipeHint {
+
+    from {
+        transform: translateY(4px);
+    }
+
+    to {
+        transform: translateY(-8px);
+    }
+
+}
+
+
+/* =========================================
+   MISSION COMPLETE
+   ========================================= */
+
+#mission-complete {
+    width: 100%;
+    min-height: 100vh;
+
+    box-sizing: border-box;
+
+    display: flex;
+    flex-direction: column;
+
+    justify-content: center;
+    align-items: center;
+
+    gap: 30px;
+
+    text-align: center;
+
+    background: #fffaf3;
+}
+
+
+#mission-complete h1 {
+    margin: 0;
+
+    font-family: Arial, sans-serif;
+
+    font-size: clamp(42px, 7vw, 72px);
+
+    color: #4f8d68;
+}
+
+
+#next-mission {
+    padding: 18px 36px;
+
+    border: none;
+    border-radius: 18px;
+
+    background: #7bb7b2;
+
+    color: white;
+
+    font-size: 22px;
+    font-weight: bold;
+
+    cursor: pointer;
+
+    box-shadow: 0 5px 0 #568884;
+}
+
+
+#next-mission:active {
+    transform: translateY(3px);
+
+    box-shadow: 0 2px 0 #568884;
+}
+
+
+/* =========================================
+   PHONE / TABLET
+   ========================================= */
+
+@media (max-width: 600px) {
+
+    #colouring-screen {
+        padding: 20px;
+        gap: 18px;
+    }
+
+
+    #colouring-area {
+        width: min(85vw, 380px);
+    }
+
+
+    .colour-btn {
+        width: 58px;
+        height: 58px;
+    }
+
+
+    #done-colouring {
+        width: min(80vw, 300px);
+    }
+}

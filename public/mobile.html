@@ -48,13 +48,76 @@
       <p class="room-status" role="status" aria-live="polite"></p>
     </section>
 
-    <!-- Person 3 -->
-    <section id="colouring-screen" hidden></section>
+    <!-- Person 3 Mission Complete -->
+<section id="mission-complete" hidden>
+
+    <h1>Mission Complete!</h1>
+
+    <button
+        id="next-mission"
+        type="button"
+    >
+        Next Mission
+    </button>
+
+</section>
 
     <!-- Person 4 -->
     <section id="glossary-screen" hidden></section>
 
   </main>
+
+<!-- Person 3 -->
+<section id="colouring-screen" hidden>
+
+    <h2>Colour your item!</h2>
+
+    <div id="colouring-area">
+
+        <canvas id="colouring-canvas"></canvas>
+
+        <img
+            id="colouring-outline"
+            alt="Item outline"
+        >
+
+    </div>
+
+    <div id="colour-options">
+
+    <button class="colour-btn" data-colour="red">Red</button>
+    <button class="colour-btn" data-colour="orange">Orange</button>
+    <button class="colour-btn" data-colour="yellow">Yellow</button>
+    <button class="colour-btn" data-colour="green">Green</button>
+    <button class="colour-btn" data-colour="blue">Blue</button>
+    <button class="colour-btn" data-colour="purple">Purple</button>
+    <button class="colour-btn" data-colour="pink">Pink</button>
+    <button class="colour-btn" data-colour="white">White</button>
+    <button class="colour-btn" data-colour="black">Black</button>
+
+</div>
+
+    <button id="done-colouring">
+        Done
+    </button>
+
+    <p id="swipe-message" hidden>
+        Swipe up to give it to the robot!
+    </p>
+
+</section>
+
+
+<!-- Person 3 Mission Complete -->
+<div id="mission-complete" hidden>
+
+    <h1>Mission Complete!</h1>
+
+    <button id="next-mission">
+        Next Mission
+    </button>
+
+</div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/js/events.js"></script>
