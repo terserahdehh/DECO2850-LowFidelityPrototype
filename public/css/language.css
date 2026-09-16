@@ -2,10 +2,10 @@
 #language-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: #f7eddb; color: #514653; font-family: system-ui, sans-serif; }
 .language-panel { width: min(100%, 460px); padding: 28px; border-radius: 24px; background: #fffaf1; text-align: center; box-shadow: 0 8px 30px #51465325; }
 .language-panel h1 { font-size: clamp(1.5rem, 5vw, 2rem); margin: 0 0 12px; }
-.language-options { display: grid; gap: 12px; margin: 24px 0; }
-.language-option, .start-adventure { min-height: 58px; padding: 12px 18px; border-radius: 14px; font: inherit; font-size: 1.1rem; cursor: pointer; }
-.language-option { border: 3px solid #d2c8ba; background: white; color: inherit; }
-.language-option.is-selected { border-color: #4f8064; background: #e5f3e8; font-weight: 700; }
-.language-option:focus-visible, .start-adventure:focus-visible { outline: 3px solid #75a9bb; outline-offset: 3px; }
-.start-adventure { width: 100%; border: 0; background: #4f8064; color: white; font-weight: 700; }
-.start-adventure:disabled { background: #aaa; color: #eee; cursor: not-allowed; }
+
+.language-options { display: flex; justify-content: center; gap: 24px; margin: 24px 0; }
+.language-option, .start-adventure { width: 88px; height: 88px; padding: 4px; border: 0; border-radius: 14px; background: transparent; cursor: pointer; }
+.language-option img, .start-adventure img { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.language-option.is-selected { background: #e5f3e8; outline: 3px solid #4f8064; outline-offset: 3px; }
+.language-option:focus-visible, .start-adventure:focus-visible { outline: 3px solid #75a9bb; outline-offset: 6px; }
+.start-adventure:disabled { opacity: .4; cursor: not-allowed; }

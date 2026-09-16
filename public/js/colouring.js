@@ -28,6 +28,33 @@ if (!socket) {
 // --------------------------------------------------
 
 let selectedItemId = null;
+let completedArtwork = null;
+
+// The word-learned event follows the successful answer event.
+window.getCompletedArtwork = (itemId) =>
+    completedArtwork?.itemId === itemId ? completedArtwork.image : null;
+
+function saveCompletedArtwork() {
+    if (!selectedItemId || !colouringOutline.complete || !colouringOutline.naturalWidth) return;
+    const snapshot = document.createElement("canvas");
+    snapshot.width = canvas.width;
+    snapshot.height = canvas.height;
+    const context = snapshot.getContext("2d");
+    context.fillStyle = "white";
+    context.fillRect(0, 0, snapshot.width, snapshot.height);
+    // Match the outline's CSS padding and object-fit inside the drawing area.
+    const bounds = colouringOutline.getBoundingClientRect();
+    const padding = parseFloat(getComputedStyle(colouringOutline).paddingLeft);
+    const inset = padding * snapshot.width / bounds.width;
+    const available = snapshot.width - inset * 2;
+    const scale = Math.min(available / colouringOutline.naturalWidth, available / colouringOutline.naturalHeight);
+    const width = colouringOutline.naturalWidth * scale;
+    const height = colouringOutline.naturalHeight * scale;
+    context.drawImage(colouringOutline, (snapshot.width - width) / 2, (snapshot.height - height) / 2, width, height);
+    context.globalCompositeOperation = "multiply";
+    context.drawImage(canvas, 0, 0);
+    completedArtwork = { itemId: selectedItemId, image: snapshot.toDataURL("image/png") };
+}
 
 let drawing = false;
 let brushColour = "red";
@@ -140,6 +167,7 @@ window.openColouringScreen = function(itemId) {
 
 
     selectedItemId = itemId;
+    completedArtwork = null;
 
 
     // Reset colouring state
@@ -491,6 +519,7 @@ socket.on(
 
         if (result.correct) {
 
+            saveCompletedArtwork();
             showMissionComplete();
 
         } else {
