@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const robotScript = fs.readFileSync(path.join(__dirname, "../public/js/robot.js"), "utf8");
 
-// A deterministic clock tests minutes of looping without waiting or using audio.
+// A deterministic clock verifies delayed speech and stale requests without audio.
 function createClock() {
   let now = 0;
   let nextId = 0;
@@ -30,10 +30,10 @@ function createClock() {
   };
 }
 
-function createRobot({speechSupported = true, audio = null, webkitAudio = false, speechFailure = ""} = {}) {
+function createRobot({speechSupported = true, audio = null, webkitAudio = false, speechFailure = "", requireGesture = false, silent = false} = {}) {
   const clock = createClock();
   const elements = {};
-  for (const id of ["robot-pet", "robot-instruction", "robot-response", "robot-speech-status"]) {
+  for (const id of ["robot-pet", "robot-instruction", "robot-response", "robot-speech-status", "robot-enable-sound"]) {
     const listeners = {};
     elements[id] = {
       textContent: "", hidden: false, dataset: {},
@@ -49,16 +49,22 @@ function createRobot({speechSupported = true, audio = null, webkitAudio = false,
   const voices = [{lang:"en-US"}, {lang:"id-ID"}, {lang:"zh-CN"}];
   let speaking = null;
   let overlaps = 0;
+  let inGesture = false;
+  let unlocked = !requireGesture;
+  const synthesisListeners = {};
   const window = {};
   if (audio) window[webkitAudio ? "webkitAudioContext" : "AudioContext"] = audio.AudioContext;
   if (speechSupported) {
     window.speechSynthesis = {
+      addEventListener(event, listener) { synthesisListeners[event] = listener; },
       cancel() { speaking = null; speechCalls.push("cancel"); if (speechFailure === "cancel") throw Error("cancel failed"); },
       getVoices() { if (speechFailure === "getVoices") throw Error("voices unavailable"); return voices; },
       speak(utterance) {
+        if (inGesture) unlocked = true;
+        if (!unlocked || silent) return;
         if (speechFailure === "speak") throw Error("speech blocked");
         if (speaking) overlaps += 1;
-        speaking = utterance; utterances.push(utterance); speechCalls.push("speak");
+        speaking = utterance; utterances.push(utterance); speechCalls.push("speak"); utterance.onstart?.();
       },
     };
     window.SpeechSynthesisUtterance = function(text) {
@@ -76,6 +82,8 @@ function createRobot({speechSupported = true, audio = null, webkitAudio = false,
     clock, elements, utterances, speechCalls, voices, window, context,
     receive(event, payload) { socketListeners[event]?.(payload); },
     tap() { documentListeners.pointerdown(); },
+    enable() { inGesture = true; try { elements["robot-enable-sound"].dispatch("click"); } finally { inGesture = false; } },
+    voicesChanged() { synthesisListeners.voiceschanged?.(); },
     lastSpeech() { return utterances.at(-1); },
     end() { const utterance = speaking; assert.ok(utterance, "there should be an active utterance"); speaking = null; utterance.onend(); },
     error() { const utterance = speaking; speaking = null; utterance.onerror({error:"not-allowed"}); },
@@ -174,7 +182,7 @@ function deferred() {
 for (const language of ["indonesian", "chinese"]) {
   const locale = language === "indonesian" ? "id-ID" : "zh-CN";
   for (const [index, example] of examples.entries()) {
-    test(`${language} mission ${index + 1}: mixed display, sequential voices, four-second loop without overlap`, () => {
+    test(`${language} mission ${index + 1}: mixed display, sequential voices, spoken once without overlap`, () => {
       const robot = createRobot();
       robot.receive("current-activity", mission(language, index));
       assert.equal(robot.elements["robot-instruction"].textContent, `${example.prefix} ${example[language][0]}.`);
@@ -191,12 +199,9 @@ for (const language of ["indonesian", "chinese"]) {
       robot.clock.advance(60000);
       assert.equal(robot.utterances.length, 2, "a slow target utterance must not overlap the next loop");
       robot.end();
-      assert.equal(robot.clock.timers.size, 1);
-      robot.clock.advance(3999);
-      assert.equal(robot.utterances.length, 2);
-      robot.clock.advance(1);
-      assert.equal(robot.lastSpeech().text, example.prefix);
-      assert.equal(robot.utterances.length, 3);
+      assert.equal(robot.clock.timers.size, 0);
+      robot.clock.advance(60000);
+      assert.equal(robot.utterances.length, 2, "instruction is spoken only once");
       assert.equal(robot.overlaps, 0);
     });
 
@@ -251,30 +256,26 @@ for (const language of ["indonesian", "chinese"]) {
       assert.equal(robot.overlaps,0);
     });
   }
-  test(`${language}: incorrect feedback speaks once, then resumes the same mission`, () => {
+  test(`${language}: incorrect feedback speaks once without replaying the instruction`, () => {
     const robot = createRobot();
     robot.receive("current-activity", mission(language)); robot.clock.advance(0);
     robot.receive("colouring-started", {itemId:"chicken"});
     robot.receive("answer-result", {correct:false,reaction:"confused"});
     assert.equal(robot.elements["robot-instruction"].hidden, false);
-    assert.equal(robot.elements["robot-response"].textContent,"Try again!");
+    assert.equal(robot.elements["robot-response"].textContent,`That's not ${examples[0][language][0]}, please feed me ${examples[0][language][0]} instead.`);
     assert.equal(robot.elements["robot-pet"].src,expectedAssets.confused);
-    assert.equal(robot.lastSpeech().text,"Try again!");
+    assert.equal(robot.lastSpeech().text,"That's not");
     assert.equal(robot.lastSpeech().lang,"en-US");
     robot.clock.advance(60000);
     assert.equal(robot.clock.timers.size,0,"do not resume until the feedback ends");
-    robot.end(); robot.clock.advance(3999);
-    assert.equal(robot.lastSpeech().text,"Try again!");
-    robot.clock.advance(1);
-    assert.equal(robot.lastSpeech().text,examples[0].prefix);
-    robot.end(); assert.equal(robot.lastSpeech().lang,locale);
-    robot.end(); robot.clock.advance(4000);
-    assert.equal(robot.utterances.filter(u=>u.text==="Try again!").length,1);
+    robot.end(); robot.end(); robot.end(); robot.end(); robot.end(); robot.clock.advance(60000);
+    assert.equal(robot.utterances.filter(u=>u.text==="That's not").length,1);
+    assert.equal(robot.clock.timers.size,0);
     assert.equal(robot.overlaps,0);
   });
 }
 
-test("repeated current-activity snapshots keep only one instruction loop", () => {
+test("repeated current-activity snapshots do not restart speech", () => {
   const robot=createRobot();
   for(let i=0;i<5;i++) robot.receive("current-activity",mission());
   assert.equal(robot.clock.timers.size,1);
@@ -282,11 +283,11 @@ test("repeated current-activity snapshots keep only one instruction loop", () =>
   assert.equal(robot.utterances.length,1);
   const stale=robot.lastSpeech();
   robot.receive("current-activity",mission());
-  stale.onend(); robot.clock.advance(0);
+  assert.equal(robot.lastSpeech(),stale); robot.clock.advance(0);
   robot.end(); robot.end();
-  assert.equal(robot.clock.timers.size,1);
-  robot.clock.advance(4000);
-  assert.equal(robot.utterances.length,4);
+  assert.equal(robot.clock.timers.size,0);
+  robot.clock.advance(60000);
+  assert.equal(robot.utterances.length,2);
   assert.equal(robot.overlaps,0);
 });
 
@@ -302,7 +303,7 @@ test("a completed reconnect snapshot cancels the queued mission before speaking 
 
 for (const event of ["game-reset","disconnect","connect_error","adventure-complete"]) {
   for(const phase of ["speaking","pause","incorrect","colouring"]) {
-    test(`${event} cancels ${phase} speech and pending loops`, () => {
+    test(`${event} cancels ${phase} speech and pending requests`, () => {
       const robot=createRobot();
       robot.receive("current-activity",mission()); robot.clock.advance(0);
       if(phase==="pause") {robot.end();robot.end();}
@@ -334,29 +335,25 @@ test("unsupported speech and speech failures keep visual feedback usable without
   }
 });
 
-test("blocked mission speech can be enabled by a tap without a robot replay button", () => {
-  const robot=createRobot(); robot.receive("current-activity",mission()); robot.clock.advance(0);
-  robot.error();robot.clock.advance(60000);
+test("one-time enable control unlocks speech before an adventure and stays hidden", () => {
+  const robot=createRobot();
+  robot.enable();
+  assert.equal(robot.lastSpeech().text,"Sound enabled.");
+  assert.equal(robot.elements["robot-enable-sound"].hidden,true);
+  robot.end();
+  robot.enable();
   assert.equal(robot.utterances.length,1);
-  robot.tap(); assert.equal(robot.utterances.length,2);
-  robot.tap(); assert.equal(robot.utterances.length,2,"ordinary taps do not add overlapping speech");
-  robot.end();robot.end(); assert.equal(robot.clock.timers.size,1);
+  robot.receive("current-activity",mission());robot.clock.advance(0);
+  assert.equal(robot.lastSpeech().text,examples[0].prefix);
+  robot.receive("game-reset");
+  assert.equal(robot.elements["robot-enable-sound"].hidden,true);
 });
 
-test("failed feedback never repeats; incorrect returns to mission, correct stays stopped", () => {
-  for(const correct of [false,true]) {
-    const robot=createRobot();robot.receive("current-activity",mission());
-    robot.receive("answer-result",{correct,reaction:correct?"eating":"confused"});
-    robot.error();robot.clock.advance(60000);robot.tap();
-    assert.equal(robot.utterances.filter(u=>u.text===(correct?examples[0].success:"Try again!")).length,1);
-    assert.equal(robot.utterances.length,correct?1:2);
-    if(!correct) assert.equal(robot.lastSpeech().text,examples[0].prefix);
-  }
-});
-
-test("missing voices retain the correct locale and later-loaded voices are selected", () => {
+test("missing voices wait briefly and later-loaded voices are selected", () => {
   const robot=createRobot();robot.voices.length=0;
   robot.receive("current-activity",mission("chinese"));robot.clock.advance(0);
+  assert.equal(robot.utterances.length,0);
+  robot.clock.advance(500);
   assert.equal(robot.lastSpeech().lang,"en-US");assert.equal(robot.lastSpeech().voice,undefined);
   robot.voices.push({lang:"zh-CN"});robot.end();
   assert.equal(robot.lastSpeech().voice.lang,"zh-CN");
@@ -453,7 +450,7 @@ test("suspended Safari audio resumes; tapping alone makes no tone",async()=>{
 test("blocked audio and stale resumes do not interrupt speech or play after reset",async()=>{
   const blocked=createAudio({state:"suspended",resume(){}});const robot=createRobot({audio:blocked});
   robot.receive("current-activity",mission());robot.receive("answer-result",{correct:false,reaction:"confused"});
-  await flushAudio();assert.equal(blocked.oscillators.length,0);assert.equal(robot.lastSpeech().text,"Try again!");
+  await flushAudio();assert.equal(blocked.oscillators.length,0);assert.equal(robot.lastSpeech().text,"That's not");
   const pending=deferred();const audio=createAudio({state:"suspended",async resume(context){await pending.promise;context.state="running";}});
   const waiting=createRobot({audio});
   const stale=vm.runInContext('playFeedbackSound("incorrect")',waiting.context);
@@ -464,3 +461,96 @@ test("blocked audio and stale resumes do not interrupt speech or play after rese
   const resetPlayback=vm.runInContext('playFeedbackSound("correct")',waiting.context);
   waiting.receive("game-reset");pendingReset.resolve();assert.equal(await resetPlayback,false);
 });
+
+for (const language of ["indonesian", "chinese"]) {
+  for (const state of ["instruction", "correct", "incorrect", "complete"]) {
+    test(`${language} blocked ${state}: robot-local gesture recovers latest message then all states speak automatically`, () => {
+      const robot=createRobot({requireGesture:true});
+      robot.receive("current-activity",mission(language));robot.clock.advance(0);
+      if(state==="correct" || state==="incorrect") robot.receive("answer-result",{correct:state==="correct",reaction:"eating"});
+      if(state==="complete") robot.receive("adventure-complete");
+      robot.clock.advance(5000);
+      assert.equal(robot.utterances.length,0,"iOS may silently reject speech before a local gesture");
+      assert.equal(robot.elements["robot-enable-sound"].hidden,false);
+      robot.tap();assert.equal(robot.utterances.length,0,"ordinary audio-context tap does not unlock speech synthesis");
+      robot.enable();
+      const expected={instruction:examples[0].prefix,correct:examples[0].success,incorrect:"That's not",complete:"Adventure complete! Great work!"};
+      assert.equal(robot.lastSpeech().text,expected[state]);
+      robot.end();
+      if(state==="incorrect") {robot.end();robot.end();robot.end();robot.end();}
+      if(state==="instruction" || state==="correct") robot.end();
+      robot.enable();
+      assert.equal(robot.utterances.filter(u=>u.text===expected[state]).length,1);
+      robot.receive("current-activity",mission(language,1));robot.clock.advance(0);
+      assert.equal(robot.lastSpeech().text,examples[1].prefix);
+      robot.end();assert.equal(robot.lastSpeech().lang,language==="indonesian"?"id-ID":"zh-CN");robot.end();
+      robot.receive("answer-result",{correct:false});assert.equal(robot.lastSpeech().text,"That's not");robot.end();robot.end();robot.end();robot.end();robot.end();
+      robot.receive("answer-result",{correct:true,reaction:"sitting"});assert.equal(robot.lastSpeech().text,examples[1].success);robot.end();robot.end();
+      robot.receive("adventure-complete");assert.equal(robot.lastSpeech().text,"Adventure complete! Great work!");robot.end();
+      robot.receive("adventure-complete");
+      assert.equal(robot.utterances.filter(u=>u.text==="Adventure complete! Great work!").length,state==="complete"?2:1);
+      assert.equal(robot.elements["robot-enable-sound"].hidden,true);
+      assert.equal(robot.overlaps,0);
+      assert.equal(robot.clock.timers.size,0);
+    });
+  }
+}
+
+test("enabling before timeout cancels rejected request without duplicate speech", () => {
+  const robot=createRobot({requireGesture:true});robot.receive("current-activity",mission());robot.clock.advance(0);
+  robot.enable();robot.clock.advance(5000);
+  assert.equal(robot.utterances.length,1);
+  assert.equal(robot.elements["robot-speech-status"].hidden,true);
+  robot.end();robot.end();assert.equal(robot.overlaps,0);
+});
+
+test("blocked outdated feedback is discarded when a new activity arrives", () => {
+  const robot=createRobot({requireGesture:true});robot.receive("current-activity",mission());
+  robot.receive("answer-result",{correct:true,reaction:"eating"});
+  robot.receive("current-activity",mission("chinese",1));robot.clock.advance(0);robot.enable();
+  assert.deepEqual(robot.utterances.map(u=>u.text),[examples[1].prefix]);
+});
+
+test("voiceschanged starts a waiting message once and reset invalidates voice waits", () => {
+  const robot=createRobot();robot.voices.length=0;
+  robot.receive("current-activity",mission());robot.clock.advance(0);
+  robot.voices.push({lang:"en-US"});robot.voicesChanged();robot.voicesChanged();
+  assert.equal(robot.utterances.length,1);robot.clock.advance(500);assert.equal(robot.utterances.length,1);
+  robot.receive("game-reset");robot.voices.length=0;
+  robot.receive("current-activity",mission());robot.clock.advance(0);robot.receive("game-reset");
+  robot.voicesChanged();robot.clock.advance(5000);assert.equal(robot.utterances.length,1);
+});
+
+test("post-enable engine failure never shows the one-time control again", () => {
+  const robot=createRobot();robot.enable();robot.end();
+  robot.receive("current-activity",mission());robot.clock.advance(0);robot.error();
+  assert.equal(robot.elements["robot-enable-sound"].hidden,true);
+  robot.clock.advance(60000);assert.equal(robot.clock.timers.size,0);
+  robot.receive("current-activity",mission("indonesian",1));robot.clock.advance(0);
+  assert.equal(robot.lastSpeech().text,examples[1].prefix);
+});
+
+test("restarting an adventure after completing its first mission speaks its instruction", () => {
+  const robot=createRobot();robot.receive("current-activity",mission());robot.clock.advance(0);
+  robot.receive("answer-result",{correct:true,reaction:"eating"});robot.end();robot.end();
+  robot.receive("current-activity",mission());robot.clock.advance(0);
+  assert.equal(robot.lastSpeech().text,examples[0].prefix);
+});
+
+for (const language of ["indonesian", "chinese"]) {
+  for (const [index, action] of ["feed", "give", "show"].entries()) {
+    test(`${language} mission ${index+1}: incorrect feedback names target twice with correct voices`, () => {
+      const robot=createRobot();robot.receive("current-activity",mission(language,index));
+      robot.receive("answer-result",{correct:false,reaction:"confused"});
+      const word=examples[index][language][0];
+      assert.equal(robot.elements["robot-response"].textContent,`That's not ${word}, please ${action} me ${word} instead.`);
+      robot.end();assert.equal(robot.lastSpeech().text,word);
+      assert.equal(robot.lastSpeech().lang,language==="indonesian"?"id-ID":"zh-CN");
+      robot.end();assert.equal(robot.lastSpeech().text,`, please ${action} me`);
+      robot.end();assert.equal(robot.lastSpeech().text,word);
+      assert.equal(robot.lastSpeech().lang,language==="indonesian"?"id-ID":"zh-CN");
+      robot.end();assert.equal(robot.lastSpeech().text,"instead.");robot.end();
+      robot.clock.advance(60000);assert.equal(robot.utterances.length,5);assert.equal(robot.overlaps,0);
+    });
+  }
+}
