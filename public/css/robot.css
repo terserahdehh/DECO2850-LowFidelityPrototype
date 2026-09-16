@@ -116,23 +116,6 @@ body {
   font-weight: 700;
 }
 
-#robot-pronunciation {
-  min-height: 48px;
-  padding: 0.75rem 1.25rem;
-  font: inherit;
-  font-size: 1.25rem;
-  cursor: pointer;
-}
-
-#robot-pronunciation:disabled {
-  cursor: default;
-}
-
-#robot-pronunciation:focus-visible {
-  outline: 3px solid #2455a4;
-  outline-offset: 4px;
-}
-
 #robot-speech-status {
   max-width: 36rem;
   margin: 0;

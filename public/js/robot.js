@@ -18,11 +18,19 @@ const socket = io();
 const robotPet = document.getElementById("robot-pet");
 const robotInstruction = document.getElementById("robot-instruction");
 const robotResponse = document.getElementById("robot-response");
-const pronunciationButton = document.getElementById("robot-pronunciation");
 const speechStatus = document.getElementById("robot-speech-status");
 
-let learnedVocabulary = null;
+const MISSION_PAUSE_MS = 4000;
+const SUCCESS_PREFIXES = {
+  eating: "Yay! Thank you for feeding me",
+  sitting: "Yay! Now I can sit on",
+  looking: "Yay! You found",
+};
+let currentActivity = null;
+let speechPhase = "idle"; // idle, waiting, colouring, incorrect, or complete
+let missionTimer = null;
 let speechRequestId = 0;
+let speechNeedsGesture = false;
 // Keep a reference while speaking, including on mobile browsers.
 let activeUtterance = null;
 
@@ -113,7 +121,7 @@ async function playFeedbackSound(type) {
 }
 
 // A tap anywhere on the robot screen can unlock audio on an iPad. No tone is
-// produced by the tap itself; only answer/completion events request sounds.
+// produced by the tap itself; it can also retry an autoplay-blocked mission.
 document.addEventListener("pointerdown", () => {
   try {
     const context = getFeedbackAudioContext();
@@ -121,6 +129,7 @@ document.addEventListener("pointerdown", () => {
   } catch (error) {
     // Unsupported or blocked audio never prevents using the screen.
   }
+  if (speechNeedsGesture && speechPhase === "waiting") startMissionSpeech();
 });
 
 function setRobotReaction(reaction) {
@@ -152,125 +161,172 @@ function showSpeechStatus(message) {
   speechStatus.hidden = !message;
 }
 
-function supportsVocabularySpeech() {
-  return Boolean(
-    window.speechSynthesis &&
-    typeof window.speechSynthesis.speak === "function" &&
-    typeof window.SpeechSynthesisUtterance === "function"
-  );
+function cancelRobotSpeech() {
+  // Invalidate callbacks before cancel(): some browsers report cancellation late.
+  speechRequestId += 1;
+  clearTimeout(missionTimer);
+  missionTimer = null;
+  activeUtterance = null;
+  speechNeedsGesture = false;
+  showSpeechStatus("");
+  try {
+    window.speechSynthesis?.cancel();
+  } catch (error) {
+    // Text and reactions remain usable without speech.
+  }
 }
 
-function cancelVocabularySpeech() {
-  // Ignore callbacks from speech cancelled by a newer word, mission or reset.
-  speechRequestId += 1;
-  activeUtterance = null;
-  showSpeechStatus("");
+function missionWord() {
+  // This only splits the displayed sentence for pronunciation. Correctness is
+  // still decided by the server; no correctItemId is sent to the robot.
+  return currentActivity?.options.find(({ label }) =>
+    currentActivity.instruction.endsWith(`${label}.`)
+  )?.label || "";
+}
 
-  if (window.speechSynthesis) {
+function speechParts(text) {
+  const word = missionWord();
+  const index = word ? text.indexOf(word) : -1;
+  if (index === -1) return [{ text, lang: "en-US" }];
+  return [
+    { text: text.slice(0, index).trim(), lang: "en-US" },
+    { text: word, lang: SPEECH_LANGUAGES[currentActivity.language] },
+    { text: text.slice(index + word.length).trim(), lang: "en-US" },
+  ].filter((part) => /[\p{L}\p{N}]/u.test(part.text));
+}
+
+function speakSequence(text, onFinished = () => {}) {
+  const requestId = speechRequestId;
+  const parts = speechParts(text);
+  let index = 0;
+  function fail() {
+    if (requestId !== speechRequestId) return;
+    activeUtterance = null;
+    speechNeedsGesture = true;
+    showSpeechStatus("Speech is unavailable or blocked. Tap the robot screen to enable mission speech.");
+    // No automatic retries after a speech error: avoid a rapid failure loop.
+    onFinished(false);
+  }
+  function speakNext() {
+    if (requestId !== speechRequestId) return;
+    if (index === parts.length) {
+      activeUtterance = null;
+      onFinished(true);
+      return;
+    }
     try {
-      window.speechSynthesis.cancel();
+      if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== "function") {
+        fail();
+        return;
+      }
+      const part = parts[index++];
+      const utterance = new window.SpeechSynthesisUtterance(part.text);
+      utterance.lang = part.lang;
+      const voices = window.speechSynthesis.getVoices?.() || [];
+      const locale = part.lang.toLowerCase();
+      const voice = voices.find((voice) => voice.lang.toLowerCase() === locale) ||
+        voices.find((voice) => voice.lang.toLowerCase().split("-")[0] === locale.split("-")[0]);
+      if (voice) utterance.voice = voice;
+      // Keep the correct lang even when the device has no matching voice yet.
+      activeUtterance = utterance;
+      utterance.onend = () => {
+        if (requestId !== speechRequestId || activeUtterance !== utterance) return;
+        activeUtterance = null;
+        speakNext();
+      };
+      utterance.onerror = () => {
+        if (requestId === speechRequestId && activeUtterance === utterance) fail();
+      };
+      window.speechSynthesis.speak(utterance);
     } catch (error) {
-      // Speech is optional; the on-screen game can still continue.
+      fail();
     }
   }
+  speakNext();
 }
 
-// Only pronounce learned vocabulary; mission instructions remain English.
-function speakVocabulary(word, language) {
-  cancelVocabularySpeech();
-
-  if (!SPEECH_LANGUAGES[language] || typeof word !== "string" || !word.trim()) {
-    return false;
-  }
-
-  if (!supportsVocabularySpeech()) {
-    showSpeechStatus("Pronunciation is not available in this browser.");
-    return false;
-  }
-
-  const requestId = speechRequestId;
-
-  try {
-    const utterance = new window.SpeechSynthesisUtterance(word);
-    utterance.lang = SPEECH_LANGUAGES[language];
-    utterance.onend = () => {
-      if (requestId === speechRequestId) activeUtterance = null;
-    };
-    utterance.onerror = () => {
-      if (requestId !== speechRequestId) return;
-      activeUtterance = null;
-      showSpeechStatus("Tap the Hear button to try the pronunciation again.");
-    };
-    activeUtterance = utterance;
-    window.speechSynthesis.speak(utterance);
-    return true;
-  } catch (error) {
-    activeUtterance = null;
-    showSpeechStatus("Pronunciation is unavailable. You can try again.");
-    return false;
-  }
+function scheduleMissionSpeech(delay = MISSION_PAUSE_MS) {
+  clearTimeout(missionTimer);
+  missionTimer = setTimeout(() => {
+    missionTimer = null;
+    startMissionSpeech();
+  }, delay);
 }
 
-function clearVocabulary() {
-  cancelVocabularySpeech();
-  learnedVocabulary = null;
-  pronunciationButton.hidden = true;
-  pronunciationButton.disabled = false;
-  pronunciationButton.textContent = "Hear word";
+function startMissionSpeech() {
+  if (!currentActivity || speechPhase !== "waiting") return;
+  cancelRobotSpeech();
+  robotResponse.textContent = "";
+  robotResponse.hidden = true;
+  setRobotReaction("idle");
+  speakSequence(currentActivity.instruction, (spoken) => {
+    // Schedule only after the last utterance ends, never while it is speaking.
+    if (spoken && speechPhase === "waiting") scheduleMissionSpeech();
+  });
 }
 
 function resetRobot(message = "Waiting for the activity to begin...") {
+  cancelRobotSpeech();
   stopFeedbackSound();
-  clearVocabulary();
+  currentActivity = null;
+  speechPhase = "idle";
   robotInstruction.textContent = message;
+  robotInstruction.hidden = false;
   robotResponse.textContent = "";
   robotResponse.hidden = true;
   setRobotReaction("idle");
 }
 
-// The server sends the same state events when this screen reconnects.
 socket.on("current-activity", (activity) => {
-  if (!activity || typeof activity.instruction !== "string") return;
+  if (!activity || typeof activity.instruction !== "string" ||
+      !Array.isArray(activity.options) || !SPEECH_LANGUAGES[activity.language]) return;
   resetRobot(activity.instruction);
+  currentActivity = activity;
+  speechPhase = "waiting";
+  // Deferring one tick lets a reconnect's following completed answer cancel this
+  // before it speaks. Repeated snapshots replace, rather than add, a loop.
+  scheduleMissionSpeech(0);
+});
+
+socket.on("colouring-started", (payload) => {
+  if (!currentActivity || speechPhase === "complete" ||
+      !currentActivity.options.some(({ itemId }) => itemId === payload?.itemId)) return;
+  cancelRobotSpeech();
+  speechPhase = "colouring";
 });
 
 socket.on("answer-result", (result) => {
-  if (!result || typeof result.correct !== "boolean") return;
-  robotResponse.textContent = result.correct ? "Great job!" : "Try again!";
+  if (!currentActivity || !result || typeof result.correct !== "boolean" ||
+      speechPhase === "complete") return;
+  // The server checks submit-item synchronously and immediately sends this event.
+  cancelRobotSpeech();
+  speechPhase = result.correct ? "complete" : "incorrect";
+  robotInstruction.hidden = result.correct;
+  const prefix = SUCCESS_PREFIXES[result.reaction];
+  const feedback = result.correct
+    ? (prefix && missionWord() ? `${prefix} ${missionWord()}!` : "Great job!")
+    : "Try again!";
+  robotResponse.textContent = feedback;
   robotResponse.hidden = false;
   setRobotReaction(result.correct ? result.reaction || "happy" : "confused");
   playFeedbackSound(result.correct ? "correct" : "incorrect");
+  speakSequence(feedback, (spoken) => {
+    if (speechPhase !== "incorrect") return;
+    speechPhase = "waiting";
+    if (spoken) scheduleMissionSpeech();
+  });
 });
 
-socket.on("word-learned", (vocabulary) => {
-  if (
-    !vocabulary ||
-    typeof vocabulary.word !== "string" ||
-    !vocabulary.word.trim() ||
-    !SPEECH_LANGUAGES[vocabulary.language]
-  ) return;
-
-  learnedVocabulary = { word: vocabulary.word, language: vocabulary.language };
-  pronunciationButton.textContent = `Hear ${vocabulary.word}`;
-  pronunciationButton.hidden = false;
-  pronunciationButton.disabled = !supportsVocabularySpeech();
-  speakVocabulary(vocabulary.word, vocabulary.language);
-});
-
-// A direct tap allows replay if an iPad/browser blocks automatic speech.
-pronunciationButton.addEventListener("click", () => {
-  if (learnedVocabulary) {
-    speakVocabulary(learnedVocabulary.word, learnedVocabulary.language);
-  }
-});
-
+// word-learned is for Person 4's glossary. The robot does not speak that event
+// or offer isolated-word replay; it already speaks the contextual feedback.
 socket.on("adventure-complete", () => {
-  clearVocabulary();
-  robotInstruction.textContent = "Adventure complete!";
+  resetRobot("Adventure complete!");
+  speechPhase = "complete";
   robotResponse.textContent = "Great work!";
   robotResponse.hidden = false;
   setRobotReaction("happy");
   playFeedbackSound("complete");
+  speakSequence("Adventure complete! Great work!");
 });
 
 socket.on("game-reset", () => resetRobot());

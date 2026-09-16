@@ -20,6 +20,7 @@ function resetGame() {
     currentActivityIndex: 0,
     isPlaying: false,
     currentActivityCompleted: false,
+    colouringItemId: null,
   });
 }
 
@@ -58,6 +59,9 @@ io.on("connection", (socket) => {
   // Learned words are live rewards, so connecting never emits word-learned again.
   if (gameState.isPlaying) {
     emitCurrentActivity(socket);
+    if (gameState.colouringItemId) {
+      socket.emit("colouring-started", { itemId: gameState.colouringItemId });
+    }
     if (gameState.currentActivityCompleted) {
       socket.emit("answer-result", {
         correct: true,
@@ -83,6 +87,14 @@ io.on("connection", (socket) => {
     emitCurrentActivity();
   });
 
+  // A notification only: selection does not submit or determine correctness.
+  socket.on("colouring-started", (payload) => {
+    if (!gameState.isPlaying || gameState.currentActivityCompleted) return;
+    if (!payload || !getCurrentActivity()?.options.some(({ itemId }) => itemId === payload.itemId)) return;
+    gameState.colouringItemId = payload.itemId;
+    io.emit("colouring-started", { itemId: payload.itemId });
+  });
+
   // Person 3 sends only { itemId }. All correctness checks happen here.
   socket.on("submit-item", (payload) => {
     if (!gameState.isPlaying || gameState.currentActivityCompleted) return;
@@ -93,6 +105,7 @@ io.on("connection", (socket) => {
     // Ignore malformed/unknown IDs; a wrong option from this mission is a retry.
     if (!activity.options.some((option) => option.itemId === payload.itemId)) return;
 
+    gameState.colouringItemId = null;
     const correct = payload.itemId === activity.correctItemId;
     if (correct) gameState.currentActivityCompleted = true;
 
@@ -111,6 +124,7 @@ io.on("connection", (socket) => {
   socket.on("next-activity", () => {
     if (!gameState.isPlaying || !gameState.currentActivityCompleted) return;
 
+    gameState.colouringItemId = null;
     gameState.currentActivityIndex += 1;
     gameState.currentActivityCompleted = false;
 

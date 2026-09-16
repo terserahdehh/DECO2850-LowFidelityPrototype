@@ -3,125 +3,106 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const robotScript = fs.readFileSync(path.join(__dirname, "../public/js/robot.js"), "utf8");
 
-const robotScript = fs.readFileSync(
-  path.join(__dirname, "../public/js/robot.js"),
-  "utf8"
-);
+// A deterministic clock tests minutes of looping without waiting or using audio.
+function createClock() {
+  let now = 0;
+  let nextId = 0;
+  const timers = new Map();
+  return {
+    timers,
+    setTimeout(callback, delay) { const id = ++nextId; timers.set(id, {callback, at: now + delay}); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    advance(milliseconds) {
+      const end = now + milliseconds;
+      let runs = 0;
+      while (true) {
+        const next = [...timers].sort((a, b) => a[1].at - b[1].at)[0];
+        if (!next || next[1].at > end) break;
+        assert.ok(++runs < 100, "speech must not enter a rapid timer loop");
+        now = next[1].at;
+        timers.delete(next[0]);
+        next[1].callback();
+      }
+      now = end;
+    },
+  };
+}
 
-// Small browser substitutes keep these checks dependency-free. Real browser
-// testing is still needed for installed voices and automatic-speech permissions.
-function createRobot({ speechSupported = true, audio = null, webkitAudio = false } = {}) {
+function createRobot({speechSupported = true, audio = null, webkitAudio = false, speechFailure = ""} = {}) {
+  const clock = createClock();
   const elements = {};
-  for (const id of [
-    "robot-pet",
-    "robot-instruction",
-    "robot-response",
-    "robot-pronunciation",
-    "robot-speech-status",
-  ]) {
+  for (const id of ["robot-pet", "robot-instruction", "robot-response", "robot-speech-status"]) {
     const listeners = {};
     elements[id] = {
-      textContent: "",
-      hidden: false,
-      disabled: false,
-      dataset: {},
+      textContent: "", hidden: false, dataset: {},
       addEventListener(event, listener) { listeners[event] = listener; },
-      dispatch(event) { listeners[event](); },
+      dispatch(event) { listeners[event]?.(); },
       removeAttribute(attribute) { delete this[attribute]; },
     };
   }
-
   const socketListeners = {};
   const documentListeners = {};
+  const utterances = [];
   const speechCalls = [];
+  const voices = [{lang:"en-US"}, {lang:"id-ID"}, {lang:"zh-CN"}];
+  let speaking = null;
+  let overlaps = 0;
   const window = {};
   if (audio) window[webkitAudio ? "webkitAudioContext" : "AudioContext"] = audio.AudioContext;
   if (speechSupported) {
     window.speechSynthesis = {
-      cancel() { speechCalls.push({ type: "cancel" }); },
-      speak(utterance) { speechCalls.push({ type: "speak", utterance }); },
+      cancel() { speaking = null; speechCalls.push("cancel"); if (speechFailure === "cancel") throw Error("cancel failed"); },
+      getVoices() { if (speechFailure === "getVoices") throw Error("voices unavailable"); return voices; },
+      speak(utterance) {
+        if (speechFailure === "speak") throw Error("speech blocked");
+        if (speaking) overlaps += 1;
+        speaking = utterance; utterances.push(utterance); speechCalls.push("speak");
+      },
     };
-    window.SpeechSynthesisUtterance = function (word) { this.text = word; };
+    window.SpeechSynthesisUtterance = function(text) {
+      if (speechFailure === "constructor") throw Error("utterance unavailable");
+      this.text = text;
+    };
   }
-
   const context = vm.createContext({
-    window,
-    document: {
-      getElementById: (id) => elements[id],
-      addEventListener(event, listener) { documentListeners[event] = listener; },
-    },
-    io: () => ({ on: (event, listener) => { socketListeners[event] = listener; } }),
+    window, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
+    document: {getElementById: id => elements[id], addEventListener(event, listener) { documentListeners[event] = listener; }},
+    io: () => ({on(event, listener) { socketListeners[event] = listener; }}),
   });
-  vm.runInContext(robotScript, context, { filename: "robot.js" });
-
+  vm.runInContext(robotScript, context, {filename:"robot.js"});
   return {
-    elements,
-    speechCalls,
-    window,
-    context,
-    receive(event, payload) { return socketListeners[event](payload); },
-    tap() { return documentListeners.pointerdown(); },
-    lastSpeech() { return speechCalls.filter((call) => call.type === "speak").at(-1)?.utterance; },
+    clock, elements, utterances, speechCalls, voices, window, context,
+    receive(event, payload) { socketListeners[event]?.(payload); },
+    tap() { documentListeners.pointerdown(); },
+    lastSpeech() { return utterances.at(-1); },
+    end() { const utterance = speaking; assert.ok(utterance, "there should be an active utterance"); speaking = null; utterance.onend(); },
+    error() { const utterance = speaking; speaking = null; utterance.onerror({error:"not-allowed"}); },
+    get overlaps() { return overlaps; },
   };
 }
 
-const missionExamples = [
-  {
-    id: "hungry-carrot",
-    instruction: "I'm hungry! Find the carrot.",
-    itemIds: ["carrot", "chicken", "rice"],
-    indonesian: ["wortel", "ayam", "nasi"],
-    chinese: ["胡萝卜", "鸡肉", "米饭"],
-  },
-  {
-    id: "sit-chair",
-    instruction: "I want to sit! Find the chair.",
-    itemIds: ["chair", "book", "table"],
-    indonesian: ["kursi", "buku", "meja"],
-    chinese: ["椅子", "书", "桌子"],
-  },
-  {
-    id: "look-butterfly",
-    instruction: "Look around! Find the butterfly.",
-    itemIds: ["butterfly", "tree", "bird"],
-    indonesian: ["kupu-kupu", "pohon", "burung"],
-    chinese: ["蝴蝶", "树", "鸟"],
-  },
+const examples = [
+  {id:"hungry-carrot", prefix:"I'm hungry! Find", items:["carrot","chicken","rice"], indonesian:["wortel","ayam","nasi"], chinese:["胡萝卜","鸡肉","米饭"], reaction:"eating", success:"Yay! Thank you for feeding me"},
+  {id:"sit-chair", prefix:"I want to sit! Find", items:["chair","book","table"], indonesian:["kursi","buku","meja"], chinese:["椅子","书","桌子"], reaction:"sitting", success:"Yay! Now I can sit on"},
+  {id:"look-butterfly", prefix:"Look around! Find", items:["butterfly","tree","bird"], indonesian:["kupu-kupu","pohon","burung"], chinese:["蝴蝶","树","鸟"], reaction:"looking", success:"Yay! You found"},
 ];
-
 const expectedAssets = {
-  idle: "/assets/char_movements/default.png",
-  happy: "/assets/char_emotions/happy.png",
-  confused: "/assets/char_emotions/sad.png",
-  eating: "/assets/char_emotions/happyeat.png",
-  sitting: "/assets/char_emotions/happysit.png",
-  looking: "/assets/char_emotions/happylook.png",
-  playing: "/assets/char_emotions/happy.png",
+  idle:"/assets/char_movements/default.png", happy:"/assets/char_emotions/happy.png",
+  confused:"/assets/char_emotions/sad.png", eating:"/assets/char_emotions/happyeat.png",
+  sitting:"/assets/char_emotions/happysit.png", looking:"/assets/char_emotions/happylook.png",
+  playing:"/assets/char_emotions/happy.png",
 };
-
-function mission(language = "indonesian", activityIndex = 0) {
-  const example = missionExamples[activityIndex];
-  return {
-    id: example.id,
-    instruction: example.instruction,
-    options: example.itemIds.map((itemId, index) => ({ itemId, label: example[language][index] })),
-    language,
-    activityIndex,
-  };
+function mission(language = "indonesian", index = 0) {
+  const e = examples[index];
+  return {id:e.id, instruction:`${e.prefix} ${e[language][0]}.`, language, activityIndex:index, options:e.items.map((itemId, i) => ({itemId, label:e[language][i]}))};
+}
+function vocabulary(language = "indonesian", index = 0) {
+  const e = examples[index];
+  return {itemId:e.items[0],word:e[language][0],meaning:e.items[0],language};
 }
 
-function vocabulary(language = "indonesian", activityIndex = 0) {
-  const example = missionExamples[activityIndex];
-  return {
-    itemId: example.itemIds[0],
-    word: example[language][0],
-    meaning: example.itemIds[0],
-    language,
-  };
-}
-
-// Record scheduled notes without playing sound or depending on browser packages.
 function createAudio({ state = "running", failure = "", resume = null } = {}) {
   const audio = { contexts: [], oscillators: [], gains: [], failure, resumeCalls: 0 };
   function fail(operation) {
@@ -189,365 +170,297 @@ function deferred() {
   return { promise, resolve };
 }
 
+
 for (const language of ["indonesian", "chinese"]) {
-  test(`${language} missions keep the instruction in English and the robot idle`, () => {
-    const robot = createRobot();
-    for (const index of [0, 1, 2]) {
+  const locale = language === "indonesian" ? "id-ID" : "zh-CN";
+  for (const [index, example] of examples.entries()) {
+    test(`${language} mission ${index + 1}: mixed display, sequential voices, four-second loop without overlap`, () => {
+      const robot = createRobot();
       robot.receive("current-activity", mission(language, index));
-      assert.equal(robot.elements["robot-instruction"].textContent, missionExamples[index].instruction);
-      assert.equal(robot.elements["robot-pet"].dataset.reaction, "idle");
-      assert.equal(robot.elements["robot-pet"].src, expectedAssets.idle);
-      assert.equal(robot.elements["robot-pet"].hidden, false);
-      assert.equal(robot.elements["robot-response"].hidden, true);
-      assert.equal(robot.lastSpeech(), undefined, "mission text is not pronounced as heritage vocabulary");
-    }
-  });
+      assert.equal(robot.elements["robot-instruction"].textContent, `${example.prefix} ${example[language][0]}.`);
+      robot.clock.advance(0);
+      assert.equal(robot.lastSpeech().text, example.prefix);
+      assert.equal(robot.lastSpeech().lang, "en-US");
+      assert.equal(robot.lastSpeech().voice.lang, "en-US");
+      robot.clock.advance(60000);
+      assert.equal(robot.utterances.length, 1, "wait for English to finish before the target");
+      robot.end();
+      assert.equal(robot.lastSpeech().text, example[language][0]);
+      assert.equal(robot.lastSpeech().lang, locale);
+      assert.equal(robot.lastSpeech().voice.lang, locale);
+      robot.clock.advance(60000);
+      assert.equal(robot.utterances.length, 2, "a slow target utterance must not overlap the next loop");
+      robot.end();
+      assert.equal(robot.clock.timers.size, 1);
+      robot.clock.advance(3999);
+      assert.equal(robot.utterances.length, 2);
+      robot.clock.advance(1);
+      assert.equal(robot.lastSpeech().text, example.prefix);
+      assert.equal(robot.utterances.length, 3);
+      assert.equal(robot.overlaps, 0);
+    });
 
-  test(`${language} learned vocabulary uses the matching speech locale`, () => {
+    for (const phase of ["speaking", "pause"]) {
+      test(`${language} mission ${index + 1}: colouring cancels ${phase} and stays silent`, () => {
+        const robot = createRobot();
+        robot.receive("current-activity", mission(language, index));
+        robot.clock.advance(0);
+        const cancelled = robot.lastSpeech();
+        if (phase === "pause") { robot.end(); robot.end(); }
+        const count = robot.utterances.length;
+        robot.receive("colouring-started", {itemId:example.items[0]});
+        robot.receive("colouring-started", {itemId:example.items[0]});
+        cancelled.onend(); cancelled.onerror();
+        robot.tap();
+        robot.clock.advance(120000);
+        assert.equal(robot.utterances.length, count);
+        assert.equal(robot.clock.timers.size, 0);
+        assert.equal(robot.elements["robot-instruction"].hidden, false);
+        assert.equal(robot.overlaps, 0);
+      });
+    }
+
+    test(`${language} mission ${index + 1}: contextual success once, then silence until the next activity`, () => {
+      const robot = createRobot();
+      robot.receive("current-activity", mission(language, index)); robot.clock.advance(0);
+      const oldUtterance = robot.lastSpeech();
+      robot.receive("colouring-started", {itemId:example.items[0]});
+      robot.receive("answer-result", {correct:true,reaction:example.reaction});
+      assert.equal(robot.elements["robot-instruction"].hidden, true);
+      assert.equal(robot.elements["robot-response"].textContent, `${example.success} ${example[language][0]}!`);
+      assert.equal(robot.elements["robot-pet"].src, expectedAssets[example.reaction]);
+      assert.equal(robot.lastSpeech().text, example.success);
+      assert.equal(robot.lastSpeech().lang, "en-US");
+      oldUtterance.onend(); oldUtterance.onerror();
+      assert.equal(robot.lastSpeech().text, example.success, "cancelled callbacks cannot resume the mission");
+      robot.end();
+      assert.equal(robot.lastSpeech().text, example[language][0]);
+      assert.equal(robot.lastSpeech().lang, locale);
+      robot.end();
+      const count = robot.utterances.length;
+      robot.receive("word-learned", vocabulary(language,index));
+      robot.receive("answer-result", {correct:true,reaction:example.reaction});
+      robot.clock.advance(120000);
+      assert.equal(robot.utterances.length, count, "success and word rewards must not trigger a loop/replay");
+      assert.equal(robot.clock.timers.size, 0);
+      robot.receive("current-activity", mission(language,(index+1)%3)); robot.clock.advance(0);
+      assert.equal(robot.lastSpeech().text, examples[(index+1)%3].prefix);
+      assert.equal(robot.elements["robot-response"].hidden,true);
+      assert.equal(robot.elements["robot-instruction"].hidden,false);
+      assert.equal(robot.elements["robot-pet"].src,expectedAssets.idle);
+      assert.equal(robot.overlaps,0);
+    });
+  }
+  test(`${language}: incorrect feedback speaks once, then resumes the same mission`, () => {
     const robot = createRobot();
-    for (const index of [0, 1, 2]) {
-      const word = vocabulary(language, index);
-      robot.receive("current-activity", mission(language, index));
-      robot.receive("word-learned", word);
-
-      assert.equal(robot.lastSpeech().text, word.word);
-      assert.equal(robot.lastSpeech().lang, language === "indonesian" ? "id-ID" : "zh-CN");
-      assert.equal(robot.elements["robot-pronunciation"].hidden, false);
-      assert.equal(robot.elements["robot-pronunciation"].textContent, `Hear ${word.word}`);
-      assert.equal(robot.elements["robot-instruction"].textContent, mission(language, index).instruction);
-    }
+    robot.receive("current-activity", mission(language)); robot.clock.advance(0);
+    robot.receive("colouring-started", {itemId:"chicken"});
+    robot.receive("answer-result", {correct:false,reaction:"confused"});
+    assert.equal(robot.elements["robot-instruction"].hidden, false);
+    assert.equal(robot.elements["robot-response"].textContent,"Try again!");
+    assert.equal(robot.elements["robot-pet"].src,expectedAssets.confused);
+    assert.equal(robot.lastSpeech().text,"Try again!");
+    assert.equal(robot.lastSpeech().lang,"en-US");
+    robot.clock.advance(60000);
+    assert.equal(robot.clock.timers.size,0,"do not resume until the feedback ends");
+    robot.end(); robot.clock.advance(3999);
+    assert.equal(robot.lastSpeech().text,"Try again!");
+    robot.clock.advance(1);
+    assert.equal(robot.lastSpeech().text,examples[0].prefix);
+    robot.end(); assert.equal(robot.lastSpeech().lang,locale);
+    robot.end(); robot.clock.advance(4000);
+    assert.equal(robot.utterances.filter(u=>u.text==="Try again!").length,1);
+    assert.equal(robot.overlaps,0);
   });
 }
 
-test("wrong and correct answers show short English feedback and the server's reaction", () => {
-  const robot = createRobot();
-  robot.receive("current-activity", mission());
-  robot.receive("answer-result", { correct: false, reaction: "confused" });
-  assert.equal(robot.elements["robot-response"].textContent, "Try again!");
-  assert.equal(robot.elements["robot-response"].hidden, false);
-  assert.equal(robot.elements["robot-pet"].dataset.reaction, "confused");
-  assert.equal(robot.elements["robot-pet"].src, expectedAssets.confused);
+test("repeated current-activity snapshots keep only one instruction loop", () => {
+  const robot=createRobot();
+  for(let i=0;i<5;i++) robot.receive("current-activity",mission());
+  assert.equal(robot.clock.timers.size,1);
+  robot.clock.advance(0);
+  assert.equal(robot.utterances.length,1);
+  const stale=robot.lastSpeech();
+  robot.receive("current-activity",mission());
+  stale.onend(); robot.clock.advance(0);
+  robot.end(); robot.end();
+  assert.equal(robot.clock.timers.size,1);
+  robot.clock.advance(4000);
+  assert.equal(robot.utterances.length,4);
+  assert.equal(robot.overlaps,0);
+});
 
-  for (const reaction of ["eating", "sitting", "looking", "happy", "playing"]) {
-    robot.receive("answer-result", { correct: true, reaction });
-    assert.equal(robot.elements["robot-response"].textContent, "Great job!");
-    assert.equal(robot.elements["robot-pet"].dataset.reaction, reaction);
-    assert.equal(robot.elements["robot-pet"].src, expectedAssets[reaction]);
-    assert.equal(robot.elements["robot-pet"].hidden, false);
-    assert.ok(fs.existsSync(path.join(__dirname, "../public", expectedAssets[reaction])));
+test("a completed reconnect snapshot cancels the queued mission before speaking success", () => {
+  const robot=createRobot();
+  robot.receive("current-activity",mission());
+  robot.receive("answer-result",{correct:true,reaction:"eating"});
+  robot.clock.advance(0);
+  assert.deepEqual(robot.utterances.map(u=>u.text),[examples[0].success]);
+  robot.end(); robot.end(); robot.clock.advance(60000);
+  assert.equal(robot.utterances.length,2);
+});
+
+for (const event of ["game-reset","disconnect","connect_error","adventure-complete"]) {
+  for(const phase of ["speaking","pause","incorrect","colouring"]) {
+    test(`${event} cancels ${phase} speech and pending loops`, () => {
+      const robot=createRobot();
+      robot.receive("current-activity",mission()); robot.clock.advance(0);
+      if(phase==="pause") {robot.end();robot.end();}
+      if(phase==="colouring") robot.receive("colouring-started",{itemId:"carrot"});
+      if(phase==="incorrect") robot.receive("answer-result",{correct:false,reaction:"confused"});
+      const stale=robot.lastSpeech();
+      robot.receive(event);
+      const count=robot.utterances.length;
+      stale.onend();stale.onerror();robot.clock.advance(60000);
+      assert.equal(robot.utterances.length,count);
+      assert.equal(robot.clock.timers.size,0);
+      assert.equal(robot.elements["robot-speech-status"].hidden,true);
+      assert.equal(robot.elements["robot-pet"].src, event==="adventure-complete"?expectedAssets.happy:expectedAssets.idle);
+    });
   }
-  assert.equal(robot.elements["robot-instruction"].textContent, mission().instruction);
-});
-
-test("automatic pronunciation and the replay button cancel any previous speech", () => {
-  const robot = createRobot();
-  robot.speechCalls.length = 0;
-  robot.receive("word-learned", vocabulary());
-  robot.elements["robot-pronunciation"].dispatch("click");
-  robot.receive("word-learned", vocabulary("chinese"));
-
-  assert.deepEqual(robot.speechCalls.map((call) => call.type), [
-    "cancel", "speak", "cancel", "speak", "cancel", "speak",
-  ]);
-  const utterances = robot.speechCalls.filter((call) => call.type === "speak");
-  assert.deepEqual(utterances.map((call) => call.utterance.text), ["wortel", "wortel", "胡萝卜"]);
-});
-
-for (const [event, payload, expectedInstruction] of [
-  ["current-activity", mission("chinese"), mission().instruction],
-  ["game-reset", undefined, "Waiting for the activity to begin..."],
-  ["disconnect", undefined, "Connecting to the adventure..."],
-  ["connect_error", undefined, "Connecting to the adventure..."],
-]) {
-  test(`${event} clears old feedback, replay and speech`, () => {
-    const robot = createRobot();
-    robot.receive("current-activity", mission());
-    robot.receive("answer-result", { correct: true, reaction: "eating" });
-    robot.receive("word-learned", vocabulary());
-    const oldUtterance = robot.lastSpeech();
-
-    robot.receive(event, payload);
-    assert.equal(robot.speechCalls.at(-1).type, "cancel");
-    assert.equal(robot.elements["robot-instruction"].textContent, expectedInstruction);
-    assert.equal(robot.elements["robot-response"].hidden, true);
-    assert.equal(robot.elements["robot-response"].textContent, "");
-    assert.equal(robot.elements["robot-pet"].dataset.reaction, "idle");
-    assert.equal(robot.elements["robot-pronunciation"].hidden, true);
-
-    oldUtterance.onerror({ error: "interrupted" });
-    assert.equal(robot.elements["robot-speech-status"].hidden, true, "cancelled speech cannot display a stale error");
-    const callsBeforeClick = robot.speechCalls.length;
-    robot.elements["robot-pronunciation"].dispatch("click");
-    assert.equal(robot.speechCalls.length, callsBeforeClick, "the previous word is no longer replayable");
-  });
 }
 
-test("reconnected completed mission restores feedback without replaying learned vocabulary", () => {
-  const robot = createRobot();
-  robot.receive("current-activity", mission());
-  robot.receive("answer-result", { correct: true, reaction: "eating" });
-
-  assert.equal(robot.elements["robot-response"].textContent, "Great job!");
-  assert.equal(robot.elements["robot-pet"].dataset.reaction, "eating");
-  assert.equal(robot.elements["robot-pronunciation"].hidden, true);
-  assert.equal(robot.lastSpeech(), undefined);
-});
-
-test("adventure completion shows happy English feedback and cancels pronunciation", () => {
-  const robot = createRobot();
-  robot.receive("word-learned", vocabulary());
-  robot.receive("adventure-complete", { language: "indonesian", completedActivities: 3 });
-
-  assert.equal(robot.elements["robot-instruction"].textContent, "Adventure complete!");
-  assert.equal(robot.elements["robot-response"].textContent, "Great work!");
-  assert.equal(robot.elements["robot-pet"].dataset.reaction, "happy");
-  assert.equal(robot.elements["robot-pet"].src, expectedAssets.happy);
-  assert.equal(robot.elements["robot-pronunciation"].hidden, true);
-  assert.equal(robot.speechCalls.at(-1).type, "cancel");
-});
-
-test("the supplied default character is visible while waiting", () => {
-  const robot = createRobot();
-  assert.equal(robot.elements["robot-pet"].hidden, false);
-  assert.equal(robot.elements["robot-pet"].src, expectedAssets.idle);
-  assert.match(robot.elements["robot-instruction"].textContent, /Waiting/);
-  for (const asset of Object.values(expectedAssets)) {
-    assert.ok(fs.existsSync(path.join(__dirname, "../public", asset)), `${asset} must exist`);
+test("unsupported speech and speech failures keep visual feedback usable without retry loops", () => {
+  for(const settings of [{speechSupported:false},...['constructor','getVoices','speak'].map(speechFailure=>({speechFailure}))]) {
+    const robot=createRobot(settings);
+    robot.receive("current-activity",mission()); robot.clock.advance(0);
+    assert.equal(robot.clock.timers.size,0);
+    assert.equal(robot.elements["robot-speech-status"].hidden,false);
+    assert.doesNotThrow(()=>robot.receive("answer-result",{correct:true,reaction:"eating"}));
+    assert.equal(robot.elements["robot-response"].textContent,"Yay! Thank you for feeding me wortel!");
+    robot.clock.advance(60000);
+    assert.equal(robot.clock.timers.size,0);
+    assert.doesNotThrow(()=>robot.receive("game-reset"));
   }
 });
 
-test("absent and failed reaction images leave useful text and recover on the next state", () => {
-  const robot = createRobot();
-  vm.runInContext('ROBOT_ASSETS.happy = "/assets/char_emotions/missing-happy.png";', robot.context);
-  robot.receive("answer-result", { correct: true, reaction: "happy" });
+test("blocked mission speech can be enabled by a tap without a robot replay button", () => {
+  const robot=createRobot(); robot.receive("current-activity",mission()); robot.clock.advance(0);
+  robot.error();robot.clock.advance(60000);
+  assert.equal(robot.utterances.length,1);
+  robot.tap(); assert.equal(robot.utterances.length,2);
+  robot.tap(); assert.equal(robot.utterances.length,2,"ordinary taps do not add overlapping speech");
+  robot.end();robot.end(); assert.equal(robot.clock.timers.size,1);
+});
+
+test("failed feedback never repeats; incorrect returns to mission, correct stays stopped", () => {
+  for(const correct of [false,true]) {
+    const robot=createRobot();robot.receive("current-activity",mission());
+    robot.receive("answer-result",{correct,reaction:correct?"eating":"confused"});
+    robot.error();robot.clock.advance(60000);robot.tap();
+    assert.equal(robot.utterances.filter(u=>u.text===(correct?examples[0].success:"Try again!")).length,1);
+    assert.equal(robot.utterances.length,correct?1:2);
+    if(!correct) assert.equal(robot.lastSpeech().text,examples[0].prefix);
+  }
+});
+
+test("missing voices retain the correct locale and later-loaded voices are selected", () => {
+  const robot=createRobot();robot.voices.length=0;
+  robot.receive("current-activity",mission("chinese"));robot.clock.advance(0);
+  assert.equal(robot.lastSpeech().lang,"en-US");assert.equal(robot.lastSpeech().voice,undefined);
+  robot.voices.push({lang:"zh-CN"});robot.end();
+  assert.equal(robot.lastSpeech().voice.lang,"zh-CN");
+});
+
+test("cancellation exceptions do not break reset or replacement speech", () => {
+  const robot=createRobot({speechFailure:"cancel"});
+  robot.receive("current-activity",mission());robot.clock.advance(0);
+  assert.doesNotThrow(()=>robot.receive("game-reset"));
+  robot.clock.advance(60000);assert.equal(robot.utterances.length,1);
+});
+
+test("robot has no Hear button and ignores isolated word-learned events", () => {
+  const html=fs.readFileSync(path.join(__dirname,"../public/pet.html"),"utf8");
+  assert.doesNotMatch(html,/robot-pronunciation|Hear word/);
+  const robot=createRobot();robot.receive("word-learned",vocabulary());
+  assert.equal(robot.utterances.length,0);
+});
+
+test("Person 5 mappings and broken-image recovery remain intact", () => {
+  const robot=createRobot();
+  for(const [reaction,url] of Object.entries(expectedAssets)) {
+    vm.runInContext(`setRobotReaction(${JSON.stringify(reaction)})`,robot.context);
+    assert.equal(robot.elements["robot-pet"].src,url);
+    assert.equal(robot.elements["robot-pet"].hidden,false);
+    assert.ok(fs.existsSync(path.join(__dirname,"../public",url)));
+  }
   robot.elements["robot-pet"].dispatch("error");
-  assert.equal(robot.elements["robot-pet"].hidden, true);
-  assert.equal(robot.elements["robot-response"].textContent, "Great job!");
-
-  robot.receive("answer-result", { correct: true, reaction: "unknown" });
-  assert.equal(robot.elements["robot-pet"].dataset.reaction, "idle");
-  assert.equal(robot.elements["robot-pet"].src, expectedAssets.idle);
-  assert.equal(robot.elements["robot-pet"].hidden, false);
-
-  vm.runInContext('ROBOT_ASSETS.eating = null;', robot.context);
-  robot.receive("answer-result", { correct: true, reaction: "eating" });
-  assert.equal(robot.elements["robot-pet"].hidden, true);
-  assert.equal(robot.elements["robot-pet"].src, undefined);
-  assert.equal(robot.elements["robot-response"].textContent, "Great job!");
+  assert.equal(robot.elements["robot-pet"].hidden,true);
+  robot.receive("current-activity",mission());
+  assert.equal(robot.elements["robot-pet"].hidden,false);
+  vm.runInContext('ROBOT_ASSETS.idle=null;setRobotReaction("unknown")',robot.context);
+  assert.equal(robot.elements["robot-pet"].hidden,true);
+  assert.equal(robot.elements["robot-pet"].src,undefined);
 });
 
-test("unsupported speech does not interrupt the game", () => {
-  const robot = createRobot({ speechSupported: false });
-  robot.receive("current-activity", mission());
-  robot.receive("answer-result", { correct: true, reaction: "eating" });
-  assert.doesNotThrow(() => robot.receive("word-learned", vocabulary()));
-
-  assert.equal(robot.elements["robot-response"].textContent, "Great job!");
-  assert.equal(robot.elements["robot-pronunciation"].disabled, true);
-  assert.equal(robot.elements["robot-speech-status"].hidden, false);
-  assert.match(robot.elements["robot-speech-status"].textContent, /not available/);
-  assert.doesNotThrow(() => robot.receive("game-reset"));
-});
-
-test("blocked speech offers a replay and clears the error when replay begins", () => {
-  const robot = createRobot();
-  robot.receive("word-learned", vocabulary());
-  robot.lastSpeech().onerror({ error: "not-allowed" });
-  assert.equal(robot.elements["robot-speech-status"].hidden, false);
-  assert.match(robot.elements["robot-speech-status"].textContent, /Hear button/);
-
-  robot.elements["robot-pronunciation"].dispatch("click");
-  assert.equal(robot.elements["robot-speech-status"].hidden, true);
-  assert.equal(robot.lastSpeech().text, "wortel");
-});
-
-test("speech API exceptions are contained and reset still works", () => {
-  const robot = createRobot();
-  robot.window.speechSynthesis.speak = () => { throw new Error("Speech unavailable"); };
-  assert.doesNotThrow(() => robot.receive("word-learned", vocabulary()));
-  assert.equal(robot.elements["robot-speech-status"].hidden, false);
-
-  robot.window.speechSynthesis.cancel = () => { throw new Error("Cancellation unavailable"); };
-  assert.doesNotThrow(() => robot.receive("game-reset"));
-  assert.equal(robot.elements["robot-speech-status"].hidden, true);
-  assert.equal(robot.elements["robot-pronunciation"].hidden, true);
-  assert.match(robot.elements["robot-instruction"].textContent, /Waiting/);
-});
-
-for (const [name, event, payload, noteCount, ascending] of [
-  ["correct", "answer-result", { correct: true, reaction: "eating" }, 2, true],
-  ["incorrect", "answer-result", { correct: false, reaction: "confused" }, 2, false],
-  ["completion", "adventure-complete", { language: "indonesian", completedActivities: 3 }, 3, true],
-]) {
-  test(`${name} feedback schedules a short, quiet chime and disconnects finished notes`, async () => {
-    const audio = createAudio();
-    const robot = createRobot({ audio });
-    robot.receive("current-activity", mission());
-    assert.equal(audio.contexts.length, 0, "waiting and new missions do not create background audio");
-    robot.receive(event, payload);
-    await flushAudio();
-
-    assert.equal(audio.contexts.length, 1);
-    assert.equal(audio.oscillators.length, noteCount);
-    assert.equal(audio.gains.length, noteCount);
-    for (const [index, oscillator] of audio.oscillators.entries()) {
-      const gain = audio.gains[index];
-      assert.equal(oscillator.type, "sine");
-      assert.equal(oscillator.starts.length, 1);
-      assert.equal(oscillator.stops.length, 1);
-      assert.ok(oscillator.stops[0] > oscillator.starts[0]);
-      assert.ok(oscillator.stops[0] - oscillator.starts[0] < 0.5);
-      assert.deepEqual(oscillator.connections, [gain]);
-      assert.deepEqual(gain.connections, [audio.contexts[0].destination]);
-      assert.equal(gain.gain.changes[0].value, 0, "the envelope starts softly");
-      assert.equal(gain.gain.changes.at(-1).value, 0, "the note fades to silence");
-      assert.ok(gain.gain.changes.some(({ value }) => value > 0));
-      assert.ok(gain.gain.changes.every(({ value }) => value >= 0 && value <= 0.05));
-      if (index > 0) {
-        const previous = audio.oscillators[index - 1];
-        assert.equal(oscillator.frequency.value > previous.frequency.value, ascending);
-        assert.ok(oscillator.starts[0] >= previous.stops[0], "notes form a short sequence");
-      }
-      oscillator.onended();
-      assert.equal(oscillator.disconnected, true);
-      assert.equal(gain.disconnected, true);
-      assert.equal(oscillator.onended, null);
+for(const [type, correct, count, ascending] of [["correct",true,2,true],["incorrect",false,2,false],["complete",null,3,true]]) {
+  test(`${type}: existing gentle feedback tones still play and clean up`, async()=>{
+    const audio=createAudio();const robot=createRobot({audio});robot.receive("current-activity",mission());
+    if(type==="complete") robot.receive("adventure-complete");else robot.receive("answer-result",{correct,reaction:correct?"eating":"confused"});
+    await flushAudio();assert.equal(audio.oscillators.length,count);
+    for(const [i,osc] of audio.oscillators.entries()) {
+      const gain=audio.gains[i];
+      assert.equal(osc.type,"sine");assert.deepEqual(osc.connections,[gain]);
+      assert.deepEqual(gain.connections,[audio.contexts[0].destination]);
+      assert.ok(gain.gain.changes.every(c=>c.value>=0&&c.value<=0.05));
+      assert.equal(gain.gain.changes[0].value,0);assert.equal(gain.gain.changes.at(-1).value,0);
+      assert.ok(osc.stops[0]>osc.starts[0]&&osc.stops[0]-osc.starts[0]<0.5);
+      if(i>0) assert.equal(osc.frequency.value>audio.oscillators[i-1].frequency.value,ascending);
+      osc.onended();assert.ok(osc.disconnected&&gain.disconnected);
     }
-    assert.ok(audio.oscillators.at(-1).stops[0] - audio.contexts[0].currentTime < 1);
   });
 }
 
-test("sound is optional: unsupported Web Audio preserves visual feedback and TTS", async () => {
-  const robot = createRobot();
-  robot.receive("answer-result", { correct: true, reaction: "eating" });
-  robot.receive("word-learned", vocabulary());
-  await flushAudio();
-  assert.equal(robot.elements["robot-response"].textContent, "Great job!");
-  assert.equal(robot.elements["robot-pet"].src, expectedAssets.eating);
-  assert.equal(robot.lastSpeech().text, "wortel");
-  assert.equal(robot.lastSpeech().lang, "id-ID");
-  assert.equal(await vm.runInContext('playFeedbackSound("correct")', robot.context), false);
-  assert.doesNotThrow(() => robot.tap());
+test("speech and audio are independent, with optional Web Audio", async()=>{
+  for(const audio of [null,createAudio()]) {
+    const robot=createRobot({audio});robot.receive("current-activity",mission());
+    robot.receive("answer-result",{correct:true,reaction:"eating"});
+    assert.equal(robot.lastSpeech().text,examples[0].success);
+    robot.end();assert.equal(robot.lastSpeech().text,"wortel");
+    const spoken=robot.utterances.length;
+    await vm.runInContext('playFeedbackSound("incorrect")',robot.context);
+    assert.equal(robot.utterances.length,spoken);
+    if(audio) assert.equal(audio.contexts.length,1);
+  }
 });
-
-test("feedback and pronunciation remain independent, including the Hear replay", async () => {
-  const audio = createAudio();
-  const robot = createRobot({ audio });
-  robot.receive("answer-result", { correct: true, reaction: "sitting" });
-  const soundNotes = [...audio.oscillators];
-  robot.receive("word-learned", vocabulary("chinese", 1));
-  assert.equal(robot.lastSpeech().text, "椅子");
-  assert.equal(robot.lastSpeech().lang, "zh-CN");
-  assert.ok(soundNotes.every((note) => !note.disconnected), "vocabulary must not stop the feedback cue");
-
-  robot.elements["robot-pronunciation"].dispatch("click");
-  assert.equal(audio.oscillators.length, 2, "Hear replays only the word, not the chime");
-  const speechCalls = robot.speechCalls.length;
-  robot.receive("answer-result", { correct: false, reaction: "confused" });
-  await flushAudio();
-  assert.equal(robot.speechCalls.length, speechCalls, "feedback must not cancel or replace speech");
-  assert.ok(soundNotes.every((note) => note.disconnected), "the next cue cleans up the previous sound");
-  assert.equal(audio.contexts.length, 1, "one AudioContext is reused");
-});
-
-for (const [event, payload] of [
-  ["current-activity", mission("indonesian", 1)],
-  ["game-reset", undefined],
-  ["disconnect", undefined],
-  ["connect_error", undefined],
-]) {
-  test(`${event} stops and disconnects active feedback notes`, async () => {
-    const audio = createAudio();
-    const robot = createRobot({ audio });
-    robot.receive("answer-result", { correct: true, reaction: "eating" });
-    assert.equal(audio.oscillators.length, 2);
-    robot.receive(event, payload);
-    await flushAudio();
-    assert.ok(audio.oscillators.every((node) => node.disconnected && node.stops.length === 2));
-    assert.ok(audio.gains.every((node) => node.disconnected));
-    assert.equal(audio.oscillators.length, 2, "resetting a screen must not start another tone");
+for(const event of ["current-activity","game-reset","disconnect","connect_error"]) {
+  test(`${event} still cleans active audio nodes`,async()=>{
+    const audio=createAudio();const robot=createRobot({audio});robot.receive("current-activity",mission());
+    robot.receive("answer-result",{correct:true,reaction:"eating"});
+    robot.receive(event,event==="current-activity"?mission("chinese",1):undefined);
+    await flushAudio();assert.ok([...audio.oscillators,...audio.gains].every(n=>n.disconnected));
+  });
+}
+for(const failure of ["constructor","resume","createOscillator","createGain","connect","start","stop"]) {
+  test(`${failure} audio failure cannot block contextual speech`,async()=>{
+    const audio=createAudio({state:failure==="resume"?"suspended":"running",failure});
+    const robot=createRobot({audio});robot.receive("current-activity",mission());
+    robot.receive("answer-result",{correct:true,reaction:"eating"});await flushAudio();
+    assert.equal(robot.lastSpeech().text,examples[0].success);
+    assert.equal(await vm.runInContext('playFeedbackSound("correct")',robot.context),false);
+    assert.ok([...audio.oscillators,...audio.gains].every(n=>n.disconnected));
+    assert.doesNotThrow(()=>robot.tap());await flushAudio();
   });
 }
 
-test("suspended audio resumes before notes play, with the Safari constructor fallback", async () => {
-  const audio = createAudio({ state: "suspended" });
-  const robot = createRobot({ audio, webkitAudio: true });
-  robot.receive("answer-result", { correct: true, reaction: "eating" });
-  assert.equal(audio.oscillators.length, 0);
-  await flushAudio();
-  assert.equal(audio.resumeCalls, 1);
-  assert.equal(audio.oscillators.length, 2);
+test("suspended Safari audio resumes; tapping alone makes no tone",async()=>{
+  const audio=createAudio({state:"suspended"});const robot=createRobot({audio,webkitAudio:true});
+  robot.tap();await flushAudio();assert.equal(audio.oscillators.length,0);assert.equal(audio.resumeCalls,1);
+  robot.receive("current-activity",mission());robot.receive("answer-result",{correct:false,reaction:"confused"});
+  await flushAudio();assert.equal(audio.oscillators.length,2);
 });
 
-test("a page tap unlocks audio without creating a sound or interrupting pronunciation", async () => {
-  const audio = createAudio({ state: "suspended" });
-  const robot = createRobot({ audio });
-  robot.receive("word-learned", vocabulary());
-  const speechCalls = robot.speechCalls.length;
-  robot.tap();
-  await flushAudio();
-  assert.equal(audio.resumeCalls, 1);
-  assert.equal(audio.contexts[0].state, "running");
-  assert.equal(audio.oscillators.length, 0);
-  assert.equal(robot.speechCalls.length, speechCalls);
-});
-
-test("audio that remains blocked never queues notes or delays heritage pronunciation", async () => {
-  const audio = createAudio({ state: "suspended", resume() {} });
-  const robot = createRobot({ audio });
-  robot.receive("answer-result", { correct: true, reaction: "eating" });
-  robot.receive("word-learned", vocabulary());
-  assert.equal(robot.lastSpeech().text, "wortel");
-  await flushAudio();
-  assert.equal(audio.oscillators.length, 0);
-  assert.equal(await vm.runInContext('playFeedbackSound("correct")', robot.context), false);
-  assert.equal(robot.elements["robot-response"].textContent, "Great job!");
-});
-
-for (const failure of ["constructor", "resume", "createOscillator", "createGain", "connect", "start", "stop"]) {
-  test(`${failure} failures are contained and partially created audio nodes are cleaned up`, async () => {
-    const audio = createAudio({ state: failure === "resume" ? "suspended" : "running", failure });
-    const robot = createRobot({ audio });
-    robot.receive("answer-result", { correct: true, reaction: "eating" });
-    robot.receive("word-learned", vocabulary());
-    await flushAudio();
-    assert.equal(robot.elements["robot-response"].textContent, "Great job!");
-    assert.equal(robot.lastSpeech().text, "wortel");
-    assert.equal(await vm.runInContext('playFeedbackSound("correct")', robot.context), false);
-    assert.ok([...audio.oscillators, ...audio.gains].every((node) => node.disconnected));
-    assert.doesNotThrow(() => robot.tap());
-    assert.doesNotThrow(() => robot.receive("game-reset"));
-    await flushAudio();
-  });
-}
-
-test("reset invalidates a pending audio resume so no stale feedback plays afterward", async () => {
-  const pending = deferred();
-  const audio = createAudio({
-    state: "suspended",
-    async resume(context) { await pending.promise; context.state = "running"; },
-  });
-  const robot = createRobot({ audio });
-  const playback = vm.runInContext('playFeedbackSound("correct")', robot.context);
-  robot.receive("game-reset");
-  pending.resolve();
-  assert.equal(await playback, false);
-  assert.equal(audio.oscillators.length, 0);
-  assert.match(robot.elements["robot-instruction"].textContent, /Waiting/);
-});
-
-test("only the latest feedback cue plays when multiple requests await audio permission", async () => {
-  const pending = deferred();
-  const audio = createAudio({
-    state: "suspended",
-    async resume(context) { await pending.promise; context.state = "running"; },
-  });
-  const robot = createRobot({ audio });
-  const stale = vm.runInContext('playFeedbackSound("incorrect")', robot.context);
-  const latest = vm.runInContext('playFeedbackSound("complete")', robot.context);
-  pending.resolve();
-  assert.equal(await stale, false);
-  assert.equal(await latest, true);
-  assert.equal(audio.oscillators.length, 3);
-  assert.ok(audio.oscillators[2].frequency.value > audio.oscillators[0].frequency.value);
+test("blocked audio and stale resumes do not interrupt speech or play after reset",async()=>{
+  const blocked=createAudio({state:"suspended",resume(){}});const robot=createRobot({audio:blocked});
+  robot.receive("current-activity",mission());robot.receive("answer-result",{correct:false,reaction:"confused"});
+  await flushAudio();assert.equal(blocked.oscillators.length,0);assert.equal(robot.lastSpeech().text,"Try again!");
+  const pending=deferred();const audio=createAudio({state:"suspended",async resume(context){await pending.promise;context.state="running";}});
+  const waiting=createRobot({audio});
+  const stale=vm.runInContext('playFeedbackSound("incorrect")',waiting.context);
+  const latest=vm.runInContext('playFeedbackSound("complete")',waiting.context);
+  pending.resolve();assert.equal(await stale,false);assert.equal(await latest,true);
+  const pendingReset=deferred();audio.contexts[0].state="suspended";
+  audio.contexts[0].resume=async()=>{await pendingReset.promise;audio.contexts[0].state="running";};
+  const resetPlayback=vm.runInContext('playFeedbackSound("correct")',waiting.context);
+  waiting.receive("game-reset");pendingReset.resolve();assert.equal(await resetPlayback,false);
 });

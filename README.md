@@ -2,7 +2,7 @@
 
 Low-fidelity prototype for a language-learning adventure game for children learning Indonesian or Chinese heritage vocabulary.
 
-The prototype includes a mobile adventure interface and a separate robot screen. Children receive simple English missions, explore a room to find objects, and learn the corresponding heritage-language vocabulary.
+The prototype includes a mobile adventure interface and a separate robot screen. Children receive simple mixed-language missions, explore a room, colour selected objects, and swipe them to the robot.
 
 ## Run Locally
 
@@ -29,108 +29,50 @@ npm test
 The prototype currently includes:
 
 - Indonesian and Chinese language selection
-- English mission instructions
-- Heritage-language object labels
+- Mixed-language mission instructions
 - Room exploration and pet movement
 - Item selection
-- Robot reactions and feedback
-- Indonesian and Chinese vocabulary pronunciation
+- Colouring and swipe submission
+- Robot reactions and spoken feedback
 - Learned-word glossary
+- Next Mission controls
 - Exit and game reset
-
-The colouring and swipe-to-robot interaction is still being integrated.
 
 ## Activities
 
 There are currently three activities.
 
-| Mission | Instruction | Correct Item | Robot Reaction |
+| Mission | Indonesian instruction | Chinese instruction | Correct Item |
 | --- | --- | --- | --- |
-| 1 | I'm hungry! Find the carrot. | `carrot` | Eating |
-| 2 | I want to sit! Find the chair. | `chair` | Sitting |
-| 3 | Look around! Find the butterfly. | `butterfly` | Looking |
-
-### Indonesian Vocabulary
-
-| Item | Indonesian |
-| --- | --- |
-| Carrot | wortel |
-| Chicken | ayam |
-| Rice | nasi |
-| Chair | kursi |
-| Book | buku |
-| Table | meja |
-| Butterfly | kupu-kupu |
-| Tree | pohon |
-| Bird | burung |
-
-### Chinese Vocabulary
-
-| Item | Chinese |
-| --- | --- |
-| Carrot | 胡萝卜 |
-| Chicken | 鸡肉 |
-| Rice | 米饭 |
-| Chair | 椅子 |
-| Book | 书 |
-| Table | 桌子 |
-| Butterfly | 蝴蝶 |
-| Tree | 树 |
-| Bird | 鸟 |
+| 1 | I'm hungry! Find wortel. | I'm hungry! Find 胡萝卜. | `carrot` |
+| 2 | I want to sit! Find kursi. | I want to sit! Find 椅子. | `chair` |
+| 3 | Look around! Find kupu-kupu. | Look around! Find 蝴蝶. | `butterfly` |
 
 ## Game Flow
-
-The intended interaction flow is:
 
 1. Choose Indonesian or Chinese.
 2. Receive a mission from the robot.
 3. Explore the room and find an item.
-4. Select the item.
-5. Colour the selected object.
-6. Swipe the completed object to the robot.
-7. Receive correct or incorrect feedback.
-8. Add the vocabulary to the glossary after a correct answer.
-9. Continue to the next mission.
-
-Currently, the implemented flow reaches item selection. The colouring and swipe interaction will connect item selection to answer submission.
-
-## Socket.IO Events
-
-The prototype uses Socket.IO to keep the robot and mobile interfaces connected.
-
-Main events include:
-
-| Event | Purpose |
-| --- | --- |
-| `start-game` | Starts an adventure using the selected language |
-| `current-activity` | Sends the current mission and item options |
-| `submit-item` | Submits an item for answer checking |
-| `answer-result` | Sends correct or incorrect feedback |
-| `word-learned` | Adds a correctly learned word to the glossary |
-| `next-activity` | Moves to the next mission |
-| `adventure-complete` | Signals that all missions are complete |
-| `exit-game` | Exits and resets the activity |
-| `game-reset` | Resets connected screens |
-
-Correctness is checked on the server. The correct item is not included in the `current-activity` data sent to clients.
+4. Colour the selected object.
+5. Swipe the completed object to the robot.
+6. Receive correct or incorrect feedback.
+7. Add the learned vocabulary to the glossary after a correct answer.
+8. Continue to the next mission.
+9. Complete the adventure after the final mission.
 
 ## Robot
 
-The robot screen displays the current mission and reacts to submitted answers using the provided character assets.
+The robot displays the current mission and reacts using the provided character assets.
 
-Robot states include:
+- Mission instructions repeat while the child is searching in the room.
+- Mission speech stops when colouring begins.
+- Incorrect feedback is spoken once, then the mission repeats when the child returns to the room.
+- Correct feedback is spoken once and waits for the next mission.
+- Adventure completion displays and speaks: `Adventure complete! Great work!`
+- Indonesian target words use `id-ID` pronunciation.
+- Chinese target words use `zh-CN` pronunciation.
 
-- Idle
-- Confused
-- Eating
-- Sitting
-- Looking
-- Happy
-
-The robot also provides simple feedback sounds and pronounces learned vocabulary using:
-
-- `id-ID` for Indonesian
-- `zh-CN` for Chinese
+Vocabulary replay is available through the glossary rather than the robot screen.
 
 ## Assets
 
@@ -139,15 +81,6 @@ Visual assets are stored in:
 ```text
 public/assets/
 ```
-
-These include:
-
-- Character reactions
-- Character movement
-- Eating objects
-- Sitting objects
-- Looking objects
-- Interface icons and backgrounds
 
 ## Technology
 
@@ -160,10 +93,8 @@ These include:
 
 ## Testing
 
-Automated tests can be run with:
+Run automated tests with:
 
 ```sh
 npm test
 ```
-
-The tests cover the main game logic, activity progression, answer checking, language data, robot reactions, vocabulary pronunciation, reset behaviour, and Socket.IO communication.
