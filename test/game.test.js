@@ -110,16 +110,16 @@ after(async () => {
   await new Promise((resolve) => io.close(resolve));
 });
 
-test("exactly three equivalent English missions use the supplied object IDs and heritage labels", () => {
+test("exactly three equivalent mixed-language missions use the supplied object IDs and heritage labels", () => {
   assert.deepEqual(Object.keys(activities).sort(), ["chinese", "indonesian"]);
   assert.equal(activities.indonesian.length, 3);
   assert.equal(activities.chinese.length, activities.indonesian.length);
 
   for (const language of ["indonesian", "chinese"]) {
     assert.deepEqual(activities[language].map(({ instruction }) => instruction), [
-      "I'm hungry! Find the carrot.",
-      "I want to sit! Find the chair.",
-      "Look around! Find the butterfly.",
+      `I'm hungry! Find ${translatedLabels[language][0][0]}.`,
+      `I want to sit! Find ${translatedLabels[language][1][0]}.`,
+      `Look around! Find ${translatedLabels[language][2][0]}.`,
     ]);
     assert.deepEqual(activities[language].map(({ correctItemId }) => correctItemId), ["carrot", "chair", "butterfly"]);
     assert.deepEqual(activities[language].map(({ successReaction }) => successReaction), missionReactions);
@@ -132,7 +132,7 @@ test("exactly three equivalent English missions use the supplied object IDs and 
       assert.deepEqual(activity.options.map(({ itemId }) => itemId), missionItems[index]);
       assert.deepEqual(activity.options.map(({ label }) => label), translatedLabels[language][index]);
       assert.match(activity.instruction, /[A-Za-z]/);
-      assert.doesNotMatch(activity.instruction, /\p{Script=Han}/u);
+      if (language === "chinese") assert.match(activity.instruction, /\p{Script=Han}/u);
 
       for (const option of activity.options) {
         assert.deepEqual(Object.keys(option).sort(), ["itemId", "label"]);
@@ -152,7 +152,7 @@ test("exactly three equivalent English missions use the supplied object IDs and 
 
       const equivalent = activities.indonesian[index];
       assert.equal(activity.id, equivalent.id);
-      assert.equal(activity.instruction, equivalent.instruction);
+      assert.equal(activity.instruction.split("Find ")[0], equivalent.instruction.split("Find ")[0]);
       assert.equal(activity.correctItemId, equivalent.correctItemId);
       assert.equal(activity.vocabulary.meaning, equivalent.vocabulary.meaning);
       assert.deepEqual(activity.options.map(({ itemId }) => itemId), equivalent.options.map(({ itemId }) => itemId));
@@ -344,4 +344,47 @@ test("all nine mission object PNGs supplied by Person 5 exist and load", async (
       assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), `${asset} must be a PNG`);
     }
   }
+});
+
+
+test("colouring notification crosses devices, survives reconnect, and never submits an answer", async () => {
+  const mobile = await connectClient();
+  const robot = await connectClient();
+  await send(mobile, "colouring-started", {itemId:"carrot"});
+  assert.equal(gameState.colouringItemId, null);
+  for (const language of ["indonesian", "chinese"]) {
+    await send(mobile, "start-game", {language});
+    for (let index = 0; index < 3; index++) {
+      takeEvents(robot);
+      for (const payload of [null, {}, {itemId:"unknown"}]) {
+        await send(mobile, "colouring-started", payload);
+      }
+      assert.deepEqual(takeEvents(robot), []);
+      const [correct, wrong] = missionItems[index];
+      await send(mobile, "colouring-started", {itemId:wrong, ignored:"extra"});
+      assert.deepEqual(takeEvents(robot), [expectedEvent("colouring-started", {itemId:wrong})]);
+      assert.equal(gameState.currentActivityCompleted, false);
+      const reconnect = await connectClient();
+      assert.deepEqual(takeEvents(reconnect), [
+        expectedEvent("current-activity", publicActivity(language, index)),
+        expectedEvent("colouring-started", {itemId:wrong}),
+      ]);
+      reconnect.socket.disconnect();
+      await send(mobile, "submit-item", {itemId:wrong});
+      assert.equal(gameState.colouringItemId, null);
+      assert.deepEqual(takeEvents(robot), [expectedEvent("answer-result", {correct:false,reaction:"confused"})]);
+      await send(mobile, "colouring-started", {itemId:correct});
+      await send(mobile, "submit-item", {itemId:correct});
+      assert.equal(gameState.colouringItemId, null);
+      takeEvents(robot);
+      await send(mobile, "colouring-started", {itemId:correct});
+      assert.deepEqual(takeEvents(robot), []);
+      await send(mobile, "next-activity");
+      assert.equal(gameState.colouringItemId, null);
+    }
+  }
+  await send(mobile, "start-game", {language:"indonesian"});
+  await send(mobile, "colouring-started", {itemId:"carrot"});
+  await send(mobile, "exit-game");
+  assert.equal(gameState.colouringItemId, null);
 });

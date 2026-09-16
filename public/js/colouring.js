@@ -208,6 +208,7 @@ window.openColouringScreen = function(itemId) {
 
     // Show colouring screen
     colouringScreen.hidden = false;
+    socket.emit("colouring-started", { itemId });
 
 
     console.log(

@@ -1,9 +1,9 @@
-// Mission instructions stay in English. Only option labels and vocabulary change.
+// Missions combine English context with the selected heritage-language target word.
 // Item IDs match Person 5's existing object filenames for Person 2 to integrate.
 const indonesian = [
   {
     id: "hungry-carrot",
-    instruction: "I'm hungry! Find the carrot.",
+    instruction: "I'm hungry! Find wortel.",
     options: [
       { itemId: "carrot", label: "wortel" },
       { itemId: "chicken", label: "ayam" },
@@ -20,7 +20,7 @@ const indonesian = [
   },
   {
     id: "sit-chair",
-    instruction: "I want to sit! Find the chair.",
+    instruction: "I want to sit! Find kursi.",
     options: [
       { itemId: "chair", label: "kursi" },
       { itemId: "book", label: "buku" },
@@ -37,7 +37,7 @@ const indonesian = [
   },
   {
     id: "look-butterfly",
-    instruction: "Look around! Find the butterfly.",
+    instruction: "Look around! Find kupu-kupu.",
     options: [
       { itemId: "butterfly", label: "kupu-kupu" },
       { itemId: "tree", label: "pohon" },
@@ -57,7 +57,7 @@ const indonesian = [
 const chinese = [
   {
     id: "hungry-carrot",
-    instruction: "I'm hungry! Find the carrot.",
+    instruction: "I'm hungry! Find 胡萝卜.",
     options: [
       { itemId: "carrot", label: "胡萝卜" },
       { itemId: "chicken", label: "鸡肉" },
@@ -74,7 +74,7 @@ const chinese = [
   },
   {
     id: "sit-chair",
-    instruction: "I want to sit! Find the chair.",
+    instruction: "I want to sit! Find 椅子.",
     options: [
       { itemId: "chair", label: "椅子" },
       { itemId: "book", label: "书" },
@@ -91,7 +91,7 @@ const chinese = [
   },
   {
     id: "look-butterfly",
-    instruction: "Look around! Find the butterfly.",
+    instruction: "Look around! Find 蝴蝶.",
     options: [
       { itemId: "butterfly", label: "蝴蝶" },
       { itemId: "tree", label: "树" },
