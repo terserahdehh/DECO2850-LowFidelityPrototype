@@ -13,6 +13,19 @@ const { io: createSocket } = require(
 const clients = new Set();
 let baseUrl;
 
+// Expected prototype content and the supplied Person 5 object groups.
+const missionItems = [
+  ["carrot", "chicken", "rice"],
+  ["chair", "book", "table"],
+  ["butterfly", "tree", "bird"],
+];
+const objectFolders = ["eat_objects", "sit_objects", "see_objects"];
+const missionReactions = ["eating", "sitting", "looking"];
+const translatedLabels = {
+  indonesian: [["wortel", "ayam", "nasi"], ["kursi", "buku", "meja"], ["kupu-kupu", "pohon", "burung"]],
+  chinese: [["胡萝卜", "鸡肉", "米饭"], ["椅子", "书", "桌子"], ["蝴蝶", "树", "鸟"]],
+};
+
 // A test-only acknowledgement gives assertions a reliable round-trip barrier.
 // It is registered here, never in the application's event contract.
 io.on("connection", (socket) => {
@@ -97,18 +110,27 @@ after(async () => {
   await new Promise((resolve) => io.close(resolve));
 });
 
-test("activity sets have equivalent English missions, stable IDs, and translated labels", () => {
+test("exactly three equivalent English missions use the supplied object IDs and heritage labels", () => {
   assert.deepEqual(Object.keys(activities).sort(), ["chinese", "indonesian"]);
-  assert.ok(activities.indonesian.length >= 3 && activities.indonesian.length <= 5);
+  assert.equal(activities.indonesian.length, 3);
   assert.equal(activities.chinese.length, activities.indonesian.length);
 
   for (const language of ["indonesian", "chinese"]) {
+    assert.deepEqual(activities[language].map(({ instruction }) => instruction), [
+      "I'm hungry! Find the carrot.",
+      "I want to sit! Find the chair.",
+      "Look around! Find the butterfly.",
+    ]);
+    assert.deepEqual(activities[language].map(({ correctItemId }) => correctItemId), ["carrot", "chair", "butterfly"]);
+    assert.deepEqual(activities[language].map(({ successReaction }) => successReaction), missionReactions);
     const seenIds = new Set();
     for (const [index, activity] of activities[language].entries()) {
       assert.ok(activity.id && !seenIds.has(activity.id));
       seenIds.add(activity.id);
       assert.equal(activity.options.length, 3);
       assert.equal(new Set(activity.options.map(({ itemId }) => itemId)).size, 3);
+      assert.deepEqual(activity.options.map(({ itemId }) => itemId), missionItems[index]);
+      assert.deepEqual(activity.options.map(({ label }) => label), translatedLabels[language][index]);
       assert.match(activity.instruction, /[A-Za-z]/);
       assert.doesNotMatch(activity.instruction, /\p{Script=Han}/u);
 
@@ -125,8 +147,8 @@ test("activity sets have equivalent English missions, stable IDs, and translated
       assert.equal(activity.vocabulary.itemId, activity.correctItemId);
       assert.equal(activity.vocabulary.word, correctOption.label);
       assert.equal(activity.vocabulary.language, language);
-      assert.ok(activity.vocabulary.meaning.trim());
-      assert.ok(["eating", "playing", "happy"].includes(activity.successReaction));
+      assert.equal(activity.vocabulary.meaning, missionItems[index][0]);
+      assert.equal(activity.successReaction, missionReactions[index]);
 
       const equivalent = activities.indonesian[index];
       assert.equal(activity.id, equivalent.id);
@@ -168,7 +190,7 @@ for (const language of ["indonesian", "chinese"]) {
       await send(mobile, "submit-item", { itemId: activity.correctItemId });
       for (const client of [robot, mobile]) {
         assert.deepEqual(takeEvents(client), [
-          expectedEvent("answer-result", { correct: true, reaction: activity.successReaction }),
+          expectedEvent("answer-result", { correct: true, reaction: missionReactions[index] }),
           expectedEvent("word-learned", activity.vocabulary),
         ]);
       }
@@ -209,7 +231,7 @@ test("invalid language and item payloads are ignored without changing shared sta
   const invalidLanguages = [undefined, null, "indonesian", [], {}, { language: "english" }, { language: "toString" }, { language: "__proto__" }, { language: 1 }];
 
   for (const payload of invalidLanguages) await send(client, "start-game", payload);
-  await send(client, "submit-item", { itemId: "apple" });
+  await send(client, "submit-item", { itemId: "carrot" });
   await send(client, "next-activity");
   assertResetState();
   assert.deepEqual(takeEvents(client), []);
@@ -218,7 +240,7 @@ test("invalid language and item payloads are ignored without changing shared sta
   takeEvents(client);
   const originalState = structuredClone(gameState);
   for (const payload of invalidLanguages) await send(client, "start-game", payload);
-  for (const payload of [undefined, null, "apple", [], {}, { itemId: "" }, { itemId: 123 }, { itemId: "not-an-option" }, { itemId: {} }]) {
+  for (const payload of [undefined, null, "carrot", [], {}, { itemId: "" }, { itemId: 123 }, { itemId: "not-an-option" }, { itemId: {} }]) {
     await send(client, "submit-item", payload);
   }
   assert.deepEqual(gameState, originalState);
@@ -308,5 +330,18 @@ test("the HTTP server serves robot assets and keeps answer data outside the publ
     const response = await fetch(`${baseUrl}${privatePath}`);
     assert.equal(response.status, 404, `${privatePath} must not expose server-only answers`);
     await response.text();
+  }
+});
+
+test("all nine mission object PNGs supplied by Person 5 exist and load", async () => {
+  for (const [index, itemIds] of missionItems.entries()) {
+    for (const itemId of itemIds) {
+      const asset = `/assets/${objectFolders[index]}/${itemId}.png`;
+      const response = await fetch(`${baseUrl}${asset}`);
+      assert.equal(response.status, 200, `${asset} should load`);
+      assert.match(response.headers.get("content-type"), /^image\/png/);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      assert.deepEqual(bytes.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), `${asset} must be a PNG`);
+    }
   }
 });

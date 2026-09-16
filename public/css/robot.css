@@ -25,9 +25,84 @@ body {
 }
 
 #robot-pet {
+  /* Keep the layout steady while Person 5's differently sized poses change. */
+  width: clamp(180px, 28vw, 300px);
+  height: clamp(200px, 34vh, 320px);
   max-width: 100%;
-  max-height: 45vh;
+  flex-shrink: 0;
   object-fit: contain;
+  image-rendering: pixelated;
+  transform-origin: 50% 85%;
+}
+
+#robot-pet[data-reaction="idle"] {
+  animation: robot-idle 3s ease-in-out infinite;
+}
+
+#robot-pet[data-reaction="confused"] {
+  animation: robot-confused 550ms ease-in-out;
+}
+
+#robot-pet[data-reaction="eating"] {
+  animation: robot-eating 650ms ease-in-out 2;
+}
+
+#robot-pet[data-reaction="sitting"] {
+  animation: robot-sitting 550ms ease-out;
+}
+
+#robot-pet[data-reaction="looking"] {
+  animation: robot-looking 800ms ease-in-out;
+}
+
+#robot-pet[data-reaction="happy"],
+#robot-pet[data-reaction="playing"] {
+  animation: robot-happy 700ms ease-in-out 2;
+}
+
+/* Animate the supplied PNGs; no extra artwork or animation library is needed. */
+@keyframes robot-idle {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.015); }
+}
+
+@keyframes robot-confused {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+@keyframes robot-eating {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(-8px); }
+  75% { transform: translateY(1px) scale(1.02, 0.98); }
+}
+
+@keyframes robot-sitting {
+  0%, 100% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-4px) scale(1.02); }
+  70% { transform: translateY(3px) scale(1.03, 0.97); }
+}
+
+@keyframes robot-looking {
+  0%, 100% { transform: rotate(0); }
+  30% { transform: rotate(-5deg); }
+  65% { transform: rotate(4deg); }
+}
+
+@keyframes robot-happy {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  35% { transform: translateY(-12px) rotate(-3deg); }
+  65% { transform: translateY(-5px) rotate(3deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #robot-pet[data-reaction] {
+    animation: none;
+    transform: none;
+  }
 }
 
 #robot-instruction,
